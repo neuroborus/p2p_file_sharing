@@ -1,1 +1,1 @@
-The application test allows ssee decentralized  sharing in local network
+The application allows decentralized file sharing in local network
