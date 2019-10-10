@@ -1,15 +1,20 @@
 use lib::*;
 //socket == "channel"
-
-
+use clap::*;
 
 fn main() -> io::Result<()> {   //
-    assert!(ADDR.is_multicast());   //
+    assert!(ADDR.is_multicast());  //
+
 
     let message = env::args().skip(1).collect::<Vec<_>>().join(" ");    //+
     //let message: Vec<String> = env::args().skip(1).collect();
     //String s;
+    let exit_flag = true;
+    while(exit_flag){
 
+
+
+    }
 
     let socket = UdpSocket::bind((Ipv4Addr::new(0, 0, 0, 0), 0))?;  //
     socket

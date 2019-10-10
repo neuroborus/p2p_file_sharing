@@ -12,7 +12,7 @@
     /*pub extern crate serde_json;
     pub extern crate serde;*/
 
-    #[macro_use]
+    //#[macro_use]
     use serde_derive::*;
 
     #[derive(Serialize, Deserialize)]
