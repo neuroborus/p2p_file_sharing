@@ -1,8 +1,7 @@
-    use std::collections::LinkedList;
-pub use std::{
+    pub use std::{
         env, io,
         net::{Ipv4Addr, UdpSocket},
-        collections::HashMap,
+        collections::LinkedList,
     };
 
     //pub enum c_type{share}
@@ -31,7 +30,7 @@ pub use std::{
 //      Scan{}, //Just update ls results?
         LS{file_list: LinkedList<File>,},
         Status{download_list: LinkedList<File>, shared_list: LinkedList<String>},
-    }//shared_list - just names of files
+    }//shared_list - just names of files, should I use File struct too?
 
     #[derive(Serialize, Deserialize)]
     pub struct File{
