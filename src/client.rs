@@ -1,16 +1,6 @@
-
-mod my_stuff;
-use my_stuff::*;
+use lib::*;
 //socket == "channel"
 
-/*#[macro_use]
-pub extern crate serde_derive;*/
-
-//#[derive(Serialize, Deserialize)]
-/*struct Command{
-    com_type: String,
-    param: String,
-}*/
 
 
 fn main() -> io::Result<()> {   //
