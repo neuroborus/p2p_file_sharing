@@ -4,6 +4,10 @@ version = "0.1.0"
 authors = ["Mikhail Hasso <mihasso@protonmail.com>"]
 edition = "2018"
 
+[lib]
+name = "lib"
+path = "src/lib.rs"
+
 [[bin]]
 name = "daemon"
 path = "src/daemon.rs"

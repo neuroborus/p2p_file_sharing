@@ -1,5 +1,4 @@
-mod my_stuff;
-use my_stuff::*;
+use lib::*;
 // On Windows, unlike all Unix variants, it is improper to bind to the multicast address
 //
 // see https://msdn.microsoft.com/en-us/library/windows/desktop/ms737550(v=vs.85).aspx
