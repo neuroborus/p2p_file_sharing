@@ -3,7 +3,6 @@
         net::{Ipv4Addr, UdpSocket},
         collections::LinkedList,
     };
-
     //pub enum c_type{share}
 
     pub const ADDR: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 123);
@@ -12,17 +11,16 @@
     /*pub extern crate serde_json;
     pub extern crate serde;*/
 
-    #[macro_use]
     use serde_derive::*;
 
-    #[derive(Serialize, Deserialize)]
+    #[derive(Serialize, Deserialize, Debug)]
     pub enum Command{   //Client -> Daemon
         Share{file_path: String,},
-        Scan{},
-        LS{},
-        Download{file_id: u32, save_path: String,},
+        Scan,
+        LS,
+        Download{file_name: String, save_path: String,},
         //Download{file_name: String, save_path: String,},
-        Status{},
+        Status,
     }
 
     #[derive(Serialize, Deserialize)]
@@ -34,7 +32,7 @@
 
     #[derive(Serialize, Deserialize)]
     pub struct File{
-        file_id: u32,   //Inactive in Anwer->Status case
+        //file_id: u32,   //Inactive in Answer->Status case
         file_name: String,
         peer: String,   //(Or Ipv4Adress) "Remote" peer or client
     }

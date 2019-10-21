@@ -16,25 +16,17 @@ fn bind_multicast(addr: &Ipv4Addr, port: u16) -> io::Result<UdpSocket> {
 fn main() -> io::Result<()> {
     println!("Daemon: running");
 
-    //let mut file_list:LinkedList<String> = LinkedList::new();
     let listener = bind_multicast(&ADDR, PORT)?;
     listener
         .join_multicast_v4(&ADDR, &Ipv4Addr::new(0, 0, 0, 0))?;
 
     let mut buf = vec![0; 4096];
     loop {
-
         let (len, remote_addr) = listener.recv_from(&mut buf)?;
-        let data = &buf[..len];
-
-        println!(
-            "{} want to share {:?}",
-            remote_addr,
-            String::from_utf8_lossy(data),
-        );
+        let com: Command = serde_json::from_slice(&buf[..len])?;
+        println!("{:?}", com);
 
         let responder = UdpSocket::bind((Ipv4Addr::new(0, 0, 0, 0), 0))?;
-
         responder
             .send_to(b"hello, client!", &remote_addr)?;
 
