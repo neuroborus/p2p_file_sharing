@@ -1,15 +1,14 @@
     pub use std::{
         env, io,
-        net::{Ipv4Addr, UdpSocket},
+        thread,
+        io::{Read, Write},
+        net::{Ipv4Addr, UdpSocket, TcpStream, TcpListener, Shutdown},
         collections::LinkedList,
     };
     //pub enum c_type{share}
 
     pub const ADDR: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 123);
     pub const PORT: u16 = 7645;
-
-    /*pub extern crate serde_json;
-    pub extern crate serde;*/
 
     use serde_derive::*;
 
@@ -19,7 +18,6 @@
         Scan,
         LS,
         Download{file_name: String, save_path: String,},
-        //Download{file_name: String, save_path: String,},
         Status,
     }
 

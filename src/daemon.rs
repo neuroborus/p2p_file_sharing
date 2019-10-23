@@ -15,21 +15,30 @@ fn bind_multicast(addr: &Ipv4Addr, port: u16) -> io::Result<UdpSocket> {
 
 fn main() -> io::Result<()> {
     println!("Daemon: running");
-
-    let listener = bind_multicast(&ADDR, PORT)?;
-    listener
-        .join_multicast_v4(&ADDR, &Ipv4Addr::new(0, 0, 0, 0))?;
-
-    let mut buf = vec![0; 4096];
+    //Just output command from client
+    let listener = TcpListener::bind(("localhost", PORT))?;
+    let mut buf = vec![0 as u8; 4096];
     loop {
-        let (len, remote_addr) = listener.recv_from(&mut buf)?;
-        let com: Command = serde_json::from_slice(&buf[..len])?;
-        println!("{:?}", com);
-
-        let responder = UdpSocket::bind((Ipv4Addr::new(0, 0, 0, 0), 0))?;
-        responder
-            .send_to(b"hello, client!", &remote_addr)?;
-
-        println!("server: sent response to {}", remote_addr);
+        for stream in listener.incoming(){
+            match stream{
+                Ok(mut stream)=>{
+                    /////////////
+                    match stream.read(&mut buf) {
+                        Ok(size) => {
+                            let com: Command = serde_json::from_slice(&buf[..size])?;
+                            println!("{:?}", com);
+                        },
+                        Err(_) => {
+                            println!("An error occurred, terminating connection with {}", stream.peer_addr().unwrap());
+                            stream.shutdown(Shutdown::Both).unwrap();
+                        }
+                    }
+                ///////////////
+                }
+                Err(e)=>{
+                    println!("Error: {}", e);
+                }
+            }
+        }
     }
 }
