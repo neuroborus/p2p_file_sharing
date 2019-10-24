@@ -90,9 +90,21 @@ fn main() -> io::Result<()> {
             stream.write(serialized.as_bytes()).unwrap();
         },
         _ => {
-            println!("Wrong command!");
+            panic!("Wrong command!");
         }
 
     }
+
+    let mut buf = vec![0 as u8; 4096];
+    match stream.read(&mut buf) {
+        Ok(size) => {
+            let answ: Answer = serde_json::from_slice(&buf[..size])?;
+            println!("{:?}", answ);
+        },
+        Err(_) => {
+            println!("An error occurred, {}", stream.peer_addr().unwrap());
+        }
+    }
+
     Ok(())
 }

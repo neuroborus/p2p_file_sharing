@@ -1,9 +1,10 @@
     pub use std::{
         env, io,
         thread,
+        sync::{Arc, Mutex, mpsc},
         io::{Read, Write},
         net::{Ipv4Addr, UdpSocket, TcpStream, TcpListener, Shutdown},
-        collections::LinkedList,
+        collections::{LinkedList, HashMap},
     };
     //pub enum c_type{share}
 
@@ -21,14 +22,15 @@
         Status,
     }
 
-    #[derive(Serialize, Deserialize)]
+    #[derive(Serialize, Deserialize, Debug)]
     pub enum Answer{    //Daemon -> Client
 //      Scan{}, //Just update ls results?
+        Ok,
         LS{file_list: LinkedList<File>,},
         Status{download_list: LinkedList<File>, shared_list: LinkedList<String>},
     }//shared_list - just names of files, should I use File struct too?
 
-    #[derive(Serialize, Deserialize)]
+    #[derive(Serialize, Deserialize, Debug)]
     pub struct File{
         //file_id: u32,   //Inactive in Answer->Status case
         file_name: String,
