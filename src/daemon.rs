@@ -91,12 +91,12 @@ fn command_processor(com: &Command, mut stream: TcpStream, mut data: MutexGuard<
     Ok(())
 }
 
-fn multicast_responder(shared_files: MutexGuard<Vec<String>>) -> io::Result<()> {
+fn multicast_responder(rcvr:  Receiver<Vec<String>>) -> io::Result<()> {
     let listener = bind_multicast_local(PORT_MULTICAST)?;
     listener
         .join_multicast_v4(&ADDR_DAEMON, &Ipv4Addr::new(0, 0, 0, 0))?;
 
-    //let mut file_names: Vec<String>;
+    let mut shared: Vec<String>;
     let mut buf = vec![0; 4096];
     loop {
         let (len, remote_addr) = listener.recv_from(&mut buf)?;
@@ -104,11 +104,8 @@ fn multicast_responder(shared_files: MutexGuard<Vec<String>>) -> io::Result<()> 
         let mut stream = TcpStream::connect(remote_addr)?;
 
         if message == SCAN_REQUEST{
-            /*file_names = Vec::new();
-            for name in data.shared.keys() {
-                file_names.push(name.to_string());
-            }*/
-            let serialized = serde_json::to_string(&*shared_files)?;
+            shared = rcvr.recv().unwrap();  //Get vec of names
+            let serialized = serde_json::to_string(&shared)?;
             stream.write(serialized.as_bytes()).unwrap();
 
         }
@@ -121,9 +118,11 @@ fn main() -> io::Result<()> {
     let listener = TcpListener::bind(("localhost", PORT_CLIENT_DAEMON))?;
 
     let data: Arc<Mutex<DataTemp>> = Arc::new(Mutex::new(DataTemp::new()));
-    /*let shared_files: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let (sndr, rcvr): (Sender<Vec<String>>, Receiver<Vec<String>>) = mpsc::channel();
+
     thread::spawn(move||
-        {multicast_responder(shared_files.lock().unwrap())});*/
+        {multicast_responder(rcvr)});
+    let mut names: Vec<String>;
     //
     let mut buf = vec![0 as u8; 4096];
     loop {
@@ -136,11 +135,15 @@ fn main() -> io::Result<()> {
                             let com: Command = serde_json::from_slice(&buf[..size])?;
                             println!{"{:?}", *data};
                             println!("{:?}", com);
-                            let data = data.clone();
+                            let dat = data.clone();
                             thread::spawn(move||
-                                {
-                                    command_processor(&com, stream, data.lock().unwrap());
-                                });   //Unwrap - it's ok?
+                                {   command_processor(&com, stream, dat.lock().unwrap());  });   //Unwrap - it's ok?
+
+                            names = Vec::new();
+                            for key in data.lock().unwrap().shared.keys() {
+                                names.push(key.clone());
+                            }
+                            sndr.send(names);
                         },
                         Err(_) => {
                             println!("An error occurred, {}", stream.peer_addr().unwrap());
