@@ -3,10 +3,7 @@ use lib::*;
 use clap::{Arg, App};
 
 fn main() -> io::Result<()> {
-    //assert!(ADDR.is_multicast());
-    //let socket = UdpSocket::bind((Ipv4Addr::new(0,0,0,0), 0))?;
-
-    let mut stream = TcpStream::connect(("localhost", PORT)).unwrap();
+    let mut stream = TcpStream::connect(("localhost", PORT_CLIENT_DAEMON)).unwrap();
     //Parsing arguments
     //share "file_path"
     //download "save_path" -fFileName (flag and save path in any order)
@@ -55,7 +52,7 @@ fn main() -> io::Result<()> {
         "ls" => {
             //println!("\n\n\tls\n");
             //////////
-            let com = Command::LS;
+            let com = Command::Ls;
             //
             let serialized = serde_json::to_string(&com)?;
             stream.write(serialized.as_bytes()).unwrap();
