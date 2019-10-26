@@ -28,18 +28,22 @@ fn main() -> io::Result<()> {
                       )
                           .get_matches();
 
+    let mut flag: bool = true;
     match matches.value_of("COMMAND").unwrap(){
         "share" => {
             if !matches.is_present("FILE_PATH"){
-                panic!("No path for sharing!")
+                println!("No path for sharing!");
+                flag = false;
             }
             //println!("\n\n\tshare\n");
             //////////
-            let f_path = String::from(matches.value_of("FILE_PATH").unwrap());
-            let com = Command::Share{file_path: f_path};
-            //
-            let serialized = serde_json::to_string(&com)?;
-            stream.write(serialized.as_bytes()).unwrap();
+            if flag==true{
+                let f_path = PathBuf::from(matches.value_of("FILE_PATH").unwrap());
+                let com = Command::Share{file_path: f_path};
+                //
+                let serialized = serde_json::to_string(&com)?;
+                stream.write(serialized.as_bytes()).unwrap();
+            }
         },
         "scan" => {
             //println!("\n\n\tscan\n");
@@ -59,24 +63,27 @@ fn main() -> io::Result<()> {
         },
         "download" => {
             if !matches.is_present("FILE_NAME"){
-                panic!("No file name to download!")
+                println!("No file name to download!");
+                flag = false;
             }
             //
-            let s_path: String;
-            if matches.is_present("FILE_PATH"){
-                s_path = String::from(matches.value_of("FILE_PATH").unwrap());
+            if flag==true{
+                let s_path: PathBuf;
+                if matches.is_present("FILE_PATH"){
+                    s_path = PathBuf::from(matches.value_of("FILE_PATH").unwrap());
+                }
+                else{
+                    s_path = PathBuf::from("");
+                }
+                //
+                let f_name: String = String::from(matches.value_of("FILE_NAME").unwrap());
+                //println!("\n\n\tls\n");
+                //////////
+                let com = Command::Download{file_name: f_name, save_path: s_path};
+                //
+                let serialized = serde_json::to_string(&com)?;
+                stream.write(serialized.as_bytes()).unwrap();
             }
-            else{
-                s_path = String::from("");
-            }
-            //
-            let f_name: String = String::from(matches.value_of("FILE_NAME").unwrap());
-            //println!("\n\n\tls\n");
-            //////////
-            let com = Command::Download{file_name: f_name, save_path: s_path};
-            //
-            let serialized = serde_json::to_string(&com)?;
-            stream.write(serialized.as_bytes()).unwrap();
         },
         "status" => {
             //println!("\n\n\tstatus\n");
@@ -87,19 +94,22 @@ fn main() -> io::Result<()> {
             stream.write(serialized.as_bytes()).unwrap();
         },
         _ => {
-            panic!("Wrong command!");
+            println!("Wrong command!");
+            flag = false;
         }
 
     }
 
-    let mut buf = vec![0 as u8; 4096];
-    match stream.read(&mut buf) {
-        Ok(size) => {
-            let answ: Answer = serde_json::from_slice(&buf[..size])?;
-            println!("{:?}", answ);
-        },
-        Err(_) => {
-            println!("An error occurred, {}", stream.peer_addr().unwrap());
+    if flag==true{
+        let mut buf = vec![0 as u8; 4096];
+        match stream.read(&mut buf) {
+            Ok(size) => {
+                let answ: Answer = serde_json::from_slice(&buf[..size])?;
+                println!("{:?}", answ);
+            },
+            Err(_) => {
+                println!("An error occurred, {}", stream.peer_addr().unwrap());
+            }
         }
     }
 

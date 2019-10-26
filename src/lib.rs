@@ -1,7 +1,7 @@
     pub use std::{
         env, io,
         thread,
-        path::Path,
+        path::PathBuf,
         sync::{Arc, Mutex, MutexGuard},
         io::{Read, Write},
         net::{Ipv4Addr, UdpSocket, SocketAddr, TcpStream, TcpListener, Shutdown},
@@ -18,10 +18,10 @@
 
     #[derive(Serialize, Deserialize, Debug)]
     pub enum Command{   //Client -> Daemon
-        Share{file_path: String,},
+        Share{file_path: PathBuf,},
         Scan,
         Ls,
-        Download{file_name: String, save_path: String,},
+        Download{file_name: String, save_path: PathBuf,},
         Status,
     }
 
@@ -31,7 +31,7 @@
         Ok,
         Ls{available_map: HashMap<String, Vec<SocketAddr>>}, //available
         Status{transferring_map: HashMap<String, Vec<SocketAddr>>,
-            shared_map: HashMap<String, String>},
+            shared_map: HashMap<String, PathBuf>},
     }
 
     #[derive(Debug)]
@@ -41,7 +41,7 @@
         pub downloading: HashMap<String, Vec<SocketAddr>>,    //Already downloading
         //
     //Your files, that available to transfer
-        pub shared: HashMap<String, String>,    //FileName - Path
+        pub shared: HashMap<String, PathBuf>,    //FileName - Path
         pub transferring: HashMap<String, Vec<SocketAddr>>    //Already transferring
     }
     impl DataTemp{

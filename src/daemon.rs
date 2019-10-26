@@ -17,7 +17,8 @@ fn command_processor(com: &Command, mut stream: TcpStream, mut data: MutexGuard<
         Command::Share{file_path: f_path} =>{
             println!("!Share!");
 
-            data.shared.insert(f_path.to_string(), f_path.to_string());
+            let name: String = String::from(f_path.file_name().unwrap().to_string_lossy());
+            data.shared.insert(name, f_path.clone());
 
             let answ = Answer::Ok;
             let serialized = serde_json::to_string(&answ)?;
@@ -95,7 +96,7 @@ fn multicast_responder(shared_files: MutexGuard<Vec<String>>) -> io::Result<()> 
     listener
         .join_multicast_v4(&ADDR_DAEMON, &Ipv4Addr::new(0, 0, 0, 0))?;
 
-    let mut file_names: Vec<String>;
+    //let mut file_names: Vec<String>;
     let mut buf = vec![0; 4096];
     loop {
         let (len, remote_addr) = listener.recv_from(&mut buf)?;
@@ -120,9 +121,9 @@ fn main() -> io::Result<()> {
     let listener = TcpListener::bind(("localhost", PORT_CLIENT_DAEMON))?;
 
     let data: Arc<Mutex<DataTemp>> = Arc::new(Mutex::new(DataTemp::new()));
-    let shared_files: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    /*let shared_files: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     thread::spawn(move||
-        {multicast_responder(shared_files.lock().unwrap())});
+        {multicast_responder(shared_files.lock().unwrap())});*/
     //
     let mut buf = vec![0 as u8; 4096];
     loop {
@@ -133,6 +134,7 @@ fn main() -> io::Result<()> {
                     match stream.read(&mut buf) {
                         Ok(size) => {
                             let com: Command = serde_json::from_slice(&buf[..size])?;
+                            println!{"{:?}", *data};
                             println!("{:?}", com);
                             let data = data.clone();
                             thread::spawn(move||
@@ -151,7 +153,7 @@ fn main() -> io::Result<()> {
                 }
             }
         }
-        println!{"{:?}", data.shared.keys()};
+
         println!("OK");
     }
 }
