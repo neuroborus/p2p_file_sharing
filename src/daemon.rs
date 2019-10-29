@@ -24,7 +24,7 @@ fn command_processor(com: &Command, mut stream: TcpStream, mut data: MutexGuard<
             let serialized = serde_json::to_string(&answ)?;
             stream.write(serialized.as_bytes()).unwrap();
         },
-        Command::Download{file_name: f_name, save_path: s_path} =>{
+        Command::Download{file_name: _file_name, save_path: _save_path} =>{
             println!("!Download!");
             let answ = Answer::Ok;
             let serialized = serde_json::to_string(&answ)?;
@@ -46,7 +46,7 @@ fn command_processor(com: &Command, mut stream: TcpStream, mut data: MutexGuard<
                         match stream.read(&mut buf) {
                             Ok(size) => {
                                 //Get List of names
-                                let names: LinkedList<String> = serde_json::from_slice(&buf[..size])?;
+                                let names: Vec<String> = serde_json::from_slice(&buf[..size])?;
                                 for name in names.into_iter() {
                                     if data.available.contains_key(&name){   //If file already exist just update Vec of IP
                                         data.available.get_mut(&name).unwrap().push(stream.peer_addr().unwrap());
@@ -85,7 +85,7 @@ fn command_processor(com: &Command, mut stream: TcpStream, mut data: MutexGuard<
             let serialized = serde_json::to_string(&answ)?;
             stream.write(serialized.as_bytes()).unwrap();
         },
-        _ => panic!("Undefined behavior!"),
+        //_ => panic!("Undefined behavior!"),
     }
 
     Ok(())
@@ -137,13 +137,13 @@ fn main() -> io::Result<()> {
                             println!("{:?}", com);
                             let dat = data.clone();
                             thread::spawn(move||
-                                {   command_processor(&com, stream, dat.lock().unwrap());  });   //Unwrap - it's ok?
+                                {   command_processor(&com, stream, dat.lock().unwrap()).unwrap();  });   //Unwrap - is it ok?
 
                             names = Vec::new();
                             for key in data.lock().unwrap().shared.keys() {
                                 names.push(key.clone());
                             }
-                            sndr.send(names);
+                            sndr.send(names).unwrap();  //Unwrap - is it ok?
                         },
                         Err(_) => {
                             println!("An error occurred, {}", stream.peer_addr().unwrap());
