@@ -14,19 +14,26 @@ fn bind_multicast(addr: &Ipv4Addr, port: u16) -> io::Result<UdpSocket> {
 }
 
 ///
-fn command_processor(com: &Command, mut stream: TcpStream, mut data: MutexGuard<DataTemp>) -> io::Result<()> {
-    match com{
-        Command::Share{file_path: f_path} =>{
+fn command_processor(
+    com: &Command,
+    mut stream: TcpStream,
+    mut data: MutexGuard<DataTemp>,
+) -> io::Result<()> {
+    match com {
+        Command::Share { file_path: f_path } => {
             println!("!Share!");
 
             let name: String = String::from(f_path.file_name().unwrap().to_string_lossy());
-            data.shared.insert(name, f_path.clone());   //Name - path
+            data.shared.insert(name, f_path.clone()); //Name - path
 
             let answ = Answer::Ok;
             let serialized = serde_json::to_string(&answ)?;
             stream.write(serialized.as_bytes()).unwrap();
-        },
-        Command::Download{file_name: _file_name, save_path: _save_path} =>{
+        }
+        Command::Download {
+            file_name: _file_name,
+            save_path: _save_path,
+        } => {
             println!("!Download!");
             //
             //Empty for now
@@ -34,40 +41,43 @@ fn command_processor(com: &Command, mut stream: TcpStream, mut data: MutexGuard<
             let answ = Answer::Ok;
             let serialized = serde_json::to_string(&answ)?;
             stream.write(serialized.as_bytes()).unwrap();
-        },
-        Command::Scan =>{
+        }
+        Command::Scan => {
             println!("!Scan!");
             let socket = UdpSocket::bind((Ipv4Addr::new(0, 0, 0, 0), 0))?;
-            socket
-                .send_to(SCAN_REQUEST, (ADDR_DAEMON_MULTICAST, PORT_MULTICAST))?;
+            socket.send_to(SCAN_REQUEST, (ADDR_DAEMON_MULTICAST, PORT_MULTICAST))?;
             //get names of files with tcp (his shared - your available)
             let listener = TcpListener::bind((Ipv4Addr::new(0, 0, 0, 0), PORT_MULTICAST))?;
 
             let mut buf = vec![0 as u8; 4096];
-            for stream in listener.incoming(){
-                match stream{
-                    Ok(mut stream)=>{
+            for stream in listener.incoming() {
+                match stream {
+                    Ok(mut stream) => {
                         match stream.read(&mut buf) {
                             Ok(size) => {
                                 //Get List of names
                                 let names: Vec<String> = serde_json::from_slice(&buf[..size])?;
                                 for name in names.into_iter() {
-                                    if data.available.contains_key(&name){   //If file already exist just update Vec of IP
-                                        data.available.get_mut(&name).unwrap().push(stream.peer_addr().unwrap());
-                                    }
-                                    else{   //In another case - adding file with first IP that share it
+                                    if data.available.contains_key(&name) {
+                                        //If file already exist just update Vec of IP
+                                        data.available
+                                            .get_mut(&name)
+                                            .unwrap()
+                                            .push(stream.peer_addr().unwrap());
+                                    } else {
+                                        //In another case - adding file with first IP that share it
                                         let mut v: Vec<SocketAddr> = Vec::new();
                                         v.push(stream.peer_addr().unwrap());
                                         data.available.insert(name, v);
                                     }
                                 }
-                            },
+                            }
                             Err(_) => {
                                 println!("An error occurred, {}", stream.peer_addr().unwrap());
                             }
                         }
                     }
-                    Err(e)=>{
+                    Err(e) => {
                         println!("Error: {}", e);
                     }
                 }
@@ -75,33 +85,35 @@ fn command_processor(com: &Command, mut stream: TcpStream, mut data: MutexGuard<
             let answ = Answer::Ok;
             let serialized = serde_json::to_string(&answ)?;
             stream.write(serialized.as_bytes()).unwrap();
-        },
-        Command::Ls =>{
+        }
+        Command::Ls => {
             println!("!Ls!");
-            let answ: Answer = Answer::Ls{available_map: data.available.clone()};
+            let answ: Answer = Answer::Ls {
+                available_map: data.available.clone(),
+            };
             let serialized = serde_json::to_string(&answ)?;
             stream.write(serialized.as_bytes()).unwrap();
-        },
-        Command::Status =>{
+        }
+        Command::Status => {
             println!("!Status!"); //transferring & shared
-            let answ: Answer = Answer::Status{transferring_map: data.transferring.clone(),
-                shared_map: data.shared.clone()};
+            let answ: Answer = Answer::Status {
+                transferring_map: data.transferring.clone(),
+                shared_map: data.shared.clone(),
+            };
             let serialized = serde_json::to_string(&answ)?;
             stream.write(serialized.as_bytes()).unwrap();
-        },
-        //_ => panic!("Undefined behavior!"),
+        } //_ => panic!("Undefined behavior!"),
     }
 
     Ok(())
 }
 
-fn multicast_responder(rcvr:  Receiver<Vec<String>>) -> io::Result<()> {
+fn multicast_responder(rcvr: Receiver<Vec<String>>) -> io::Result<()> {
     let listener = bind_multicast(&ADDR_DAEMON_MULTICAST, PORT_MULTICAST)?;
-    listener
-        .join_multicast_v4(&ADDR_DAEMON_MULTICAST, &Ipv4Addr::new(0, 0, 0, 0))?;
+    listener.join_multicast_v4(&ADDR_DAEMON_MULTICAST, &Ipv4Addr::new(0, 0, 0, 0))?;
 
     /*listener
-        .join_multicast_v4(&ADDR_DAEMON, &Ipv4Addr::new(0, 0, 0, 0))?;*/
+    .join_multicast_v4(&ADDR_DAEMON, &Ipv4Addr::new(0, 0, 0, 0))?;*/
 
     let mut shared: Vec<String>;
     let mut buf = vec![0; 4096];
@@ -110,10 +122,10 @@ fn multicast_responder(rcvr:  Receiver<Vec<String>>) -> io::Result<()> {
         let message = &buf[..len];
         let mut stream = TcpStream::connect(remote_addr)?;
 
-        if message == SCAN_REQUEST{
-            shared = rcvr.recv().unwrap();  //Get vec of names
+        if message == SCAN_REQUEST {
+            shared = rcvr.recv().unwrap(); //Get vec of names
             let serialized = serde_json::to_string(&shared)?;
-            stream.write(serialized.as_bytes()).unwrap();   //Send our "shared"
+            stream.write(serialized.as_bytes()).unwrap(); //Send our "shared"
         }
     }
 }
@@ -127,46 +139,46 @@ fn main() -> io::Result<()> {
     //Channel for transfeering info about sharing to multicast_responder
     let (sndr, rcvr): (Sender<Vec<String>>, Receiver<Vec<String>>) = mpsc::channel();
 
-    thread::spawn(move||
-        {multicast_responder(rcvr)});
+    thread::spawn(move || multicast_responder(rcvr));
     let mut names: Vec<String>;
     //
     let mut buf = vec![0 as u8; 4096];
-    for stream in listener.incoming(){
-        match stream{
-            Ok(mut stream)=>{
+    for stream in listener.incoming() {
+        match stream {
+            Ok(mut stream) => {
                 /////////////
                 match stream.read(&mut buf) {
                     Ok(size) => {
                         //Now the daemon does not crash when the command is entered incorrectly
                         let com: Command;
-                        match  serde_json::from_slice(&buf[..size]){
-                            Ok(c)=>{
+                        match serde_json::from_slice(&buf[..size]) {
+                            Ok(c) => {
                                 com = c;
                             }
-                            Err(_)=>{
+                            Err(_) => {
                                 println!("Client made a mistake!");
                                 continue;
                             }
                         }
 
-                        println!{"{:?}", *data};
+                        println! {"{:?}", *data};
                         let dat = data.clone();
-                        thread::spawn(move||
-                            {   command_processor(&com, stream, dat.lock().unwrap()).unwrap();  });
+                        thread::spawn(move || {
+                            command_processor(&com, stream, dat.lock().unwrap()).unwrap();
+                        });
                         names = Vec::new();
                         for key in data.lock().unwrap().shared.keys() {
                             names.push(key.clone());
                         }
                         sndr.send(names).unwrap();
-                    },
+                    }
                     Err(_) => {
                         println!("An error occurred, {}", stream.peer_addr().unwrap());
                     }
                 }
-            ///////////////
+                ///////////////
             }
-            Err(e)=>{
+            Err(e) => {
                 println!("Error: {}", e);
             }
         }
