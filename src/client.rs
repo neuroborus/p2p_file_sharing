@@ -75,7 +75,7 @@ fn main() -> io::Result<()> {
                 flag = false;
             }
             //
-            if flag==true{
+            if flag{
                 let s_path: PathBuf;
                 if matches.is_present("FILE_PATH"){
                     s_path = PathBuf::from(matches.value_of("FILE_PATH").unwrap());
