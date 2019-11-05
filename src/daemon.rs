@@ -104,7 +104,6 @@ fn command_processor(
             let serialized = serde_json::to_string(&answ)?;
             stream.write(serialized.as_bytes()).unwrap();
         }
-        //_ => panic!("Undefined behavior!"),
     }
 
     Ok(())
@@ -113,9 +112,6 @@ fn command_processor(
 fn multicast_responder(rcvr: Receiver<Vec<String>>) -> io::Result<()> {
     let listener = bind_multicast(&ADDR_DAEMON_MULTICAST, PORT_MULTICAST)?;
     listener.join_multicast_v4(&ADDR_DAEMON_MULTICAST, &Ipv4Addr::new(0, 0, 0, 0))?;
-
-    /*listener
-    .join_multicast_v4(&ADDR_DAEMON, &Ipv4Addr::new(0, 0, 0, 0))?;*/
 
     let mut shared: Vec<String>;
     let mut buf = vec![0; 4096];

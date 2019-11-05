@@ -96,7 +96,6 @@ fn main() -> io::Result<()> {
                         wait: false,
                     };
                 }
-
                 //
                 let serialized = serde_json::to_string(&com)?;
                 stream.write(serialized.as_bytes()).unwrap();
