@@ -26,7 +26,7 @@ fn command_processor(com: &Command, mut stream: TcpStream, mut data: MutexGuard<
             let serialized = serde_json::to_string(&answ)?;
             stream.write(serialized.as_bytes()).unwrap();
         },
-        Command::Download{file_name: _file_name, save_path: _save_path} =>{
+        Command::Download{file_name: _file_name, save_path: _save_path, wait: _wait} =>{
             println!("!Download!");
             //
             //Empty for now

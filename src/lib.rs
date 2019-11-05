@@ -22,7 +22,7 @@
         Share{file_path: PathBuf,},
         Scan,
         Ls,
-        Download{file_name: String, save_path: PathBuf},
+        Download{file_name: String, save_path: PathBuf, wait: bool},
         Status,
     }
 

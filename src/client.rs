@@ -13,14 +13,14 @@ fn main() -> io::Result<()> {
                           .arg(Arg::with_name("COMMAND")
                           .required(true)
                       )
-                          .arg(Arg::with_name("FLG_BLOCK_INPUT")
+                          .arg(Arg::with_name("FLG_WAIT")
                           .short("w")
                       )
                           .arg(Arg::with_name("FILE_NAME")    //Filename (download) - is option now
                           .short("f")
                           .takes_value(true)
                       )
-                        /*  .arg(Arg::with_name("SAVE_PATH")    //Commented until I understood why
+                        /*  .arg(Arg::with_name("SAVE_PATH")    //Relative path
                           .short("o")
                           .takes_value(true)
                       )*/
@@ -87,7 +87,13 @@ fn main() -> io::Result<()> {
                 let f_name: String = String::from(matches.value_of("FILE_NAME").unwrap());
                 //println!("\n\n\tls\n");
                 //////////
-                let com = Command::Download{file_name: f_name, save_path: s_path};
+                let com: Command;
+                if matches.is_present("FLG_WAIT"){  //If user wants to block console until download is finished
+                    com = Command::Download{file_name: f_name, save_path: s_path, wait: true};
+                }else{
+                    com = Command::Download{file_name: f_name, save_path: s_path, wait: false};
+                }
+
                 //
                 let serialized = serde_json::to_string(&com)?;
                 stream.write(serialized.as_bytes()).unwrap();
