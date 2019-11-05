@@ -28,7 +28,7 @@ fn main() -> io::Result<()> {
                       )
                           .get_matches();
 
-    let mut flag: bool = true;
+    let mut flag: bool = true;  //Now we don't need panic!
     match matches.value_of("COMMAND").unwrap(){
         "share" => {
             if !matches.is_present("FILE_PATH"){
@@ -37,12 +37,20 @@ fn main() -> io::Result<()> {
             }
             //println!("\n\n\tshare\n");
             //////////
-            if flag==true{
+            if flag{
                 let f_path = PathBuf::from(matches.value_of("FILE_PATH").unwrap());
-                let com = Command::Share{file_path: f_path};
-                //
-                let serialized = serde_json::to_string(&com)?;
-                stream.write(serialized.as_bytes()).unwrap();
+
+                if f_path.is_file(){ //Checking the file
+                    let com = Command::Share{file_path: f_path};
+                    //
+                    let serialized = serde_json::to_string(&com)?;
+                    stream.write(serialized.as_bytes()).unwrap();
+                }
+                else{
+                    println!("File does not exists!");
+                    flag = false;
+                }
+
             }
         },
         "scan" => {
@@ -100,7 +108,7 @@ fn main() -> io::Result<()> {
 
     }
 
-    if flag==true{
+    if flag{
         let mut buf = vec![0 as u8; 4096];
         match stream.read(&mut buf) {
             Ok(size) => {

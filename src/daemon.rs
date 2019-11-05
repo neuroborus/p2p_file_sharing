@@ -132,37 +132,45 @@ fn main() -> io::Result<()> {
     let mut names: Vec<String>;
     //
     let mut buf = vec![0 as u8; 4096];
-    loop {
-        for stream in listener.incoming(){
-            match stream{
-                Ok(mut stream)=>{
-                    /////////////
-                    match stream.read(&mut buf) {
-                        Ok(size) => {
-                            let com: Command = serde_json::from_slice(&buf[..size])?;
-                            println!{"{:?}", *data};
-                            let dat = data.clone();
-                            thread::spawn(move||
-                                {   command_processor(&com, stream, dat.lock().unwrap()).unwrap();  });   //Unwrap - is it ok?
-
-                            names = Vec::new();
-                            for key in data.lock().unwrap().shared.keys() {
-                                names.push(key.clone());
+    for stream in listener.incoming(){
+        match stream{
+            Ok(mut stream)=>{
+                /////////////
+                match stream.read(&mut buf) {
+                    Ok(size) => {
+                        //Now the daemon does not crash when the command is entered incorrectly
+                        let com: Command;
+                        match  serde_json::from_slice(&buf[..size]){
+                            Ok(c)=>{
+                                com = c;
                             }
-                            sndr.send(names).unwrap();  //Unwrap - is it ok?
-                        },
-                        Err(_) => {
-                            println!("An error occurred, {}", stream.peer_addr().unwrap());
+                            Err(_)=>{
+                                println!("Client made a mistake!");
+                                continue;
+                            }
                         }
+
+                        println!{"{:?}", *data};
+                        let dat = data.clone();
+                        thread::spawn(move||
+                            {   command_processor(&com, stream, dat.lock().unwrap()).unwrap();  });
+                        names = Vec::new();
+                        for key in data.lock().unwrap().shared.keys() {
+                            names.push(key.clone());
+                        }
+                        sndr.send(names).unwrap();
+                    },
+                    Err(_) => {
+                        println!("An error occurred, {}", stream.peer_addr().unwrap());
                     }
-                ///////////////
                 }
-                Err(e)=>{
-                    println!("Error: {}", e);
-                }
+            ///////////////
+            }
+            Err(e)=>{
+                println!("Error: {}", e);
             }
         }
-
-        println!("OK");
     }
+
+    Ok(())
 }
