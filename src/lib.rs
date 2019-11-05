@@ -32,6 +32,7 @@ pub enum Command {
     Download {
         file_name: String,
         save_path: PathBuf,
+        wait: bool,
     },
     Status,
 }
