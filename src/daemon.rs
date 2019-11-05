@@ -76,7 +76,7 @@ fn command_processor(
     Ok(())
 }
 
-fn multicast_responder(rcvr: Receiver<Vec<String>>) -> io::Result<()> {
+/* fn multicast_responder(rcvr: Receiver<Vec<String>>) -> io::Result<()> {
     let listener = bind_multicast(&ADDR_DAEMON_MULTICAST, PORT_MULTICAST)?;
     listener.join_multicast_v4(&ADDR_DAEMON_MULTICAST, &Ipv4Addr::new(0, 0, 0, 0))?;
 
@@ -89,6 +89,28 @@ fn multicast_responder(rcvr: Receiver<Vec<String>>) -> io::Result<()> {
 
         if message == SCAN_REQUEST {
             shared = rcvr.recv().unwrap(); //Get vec of names
+            let serialized = serde_json::to_string(&shared)?;
+            stream.write(serialized.as_bytes()).unwrap(); //Send our "shared"
+        }
+    }
+} */
+fn multicast_responder(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
+    let listener = bind_multicast(&ADDR_DAEMON_MULTICAST, PORT_MULTICAST)?;
+    listener.join_multicast_v4(&ADDR_DAEMON_MULTICAST, &Ipv4Addr::new(0, 0, 0, 0))?;
+
+    let mut shared: Vec<String>;
+    let mut buf = vec![0; 4096];
+    loop {
+        let (len, remote_addr) = listener.recv_from(&mut buf)?;
+        let message = &buf[..len];
+        let mut stream = TcpStream::connect(remote_addr)?;
+
+        if message == SCAN_REQUEST {
+            let dat = data.lock().unwrap();
+            shared = Vec::new();
+            for key in dat.shared.keys() {
+                shared.push(key.clone());
+            }
             let serialized = serde_json::to_string(&shared)?;
             stream.write(serialized.as_bytes()).unwrap(); //Send our "shared"
         }
@@ -141,10 +163,10 @@ fn main() -> io::Result<()> {
     //All about files daemon knowledge
     let data: Arc<Mutex<DataTemp>> = Arc::new(Mutex::new(DataTemp::new()));
     //Channel for transfeering info about sharing to multicast_responder
-    let (sndr, rcvr): (Sender<Vec<String>>, Receiver<Vec<String>>) = mpsc::channel();
 
+    let mult_resp_data = data.clone();
     thread::spawn(move || {
-        multicast_responder(rcvr).unwrap();
+        multicast_responder(mult_resp_data).unwrap();
     });
 
     let mult_recv_data = data.clone();
@@ -152,7 +174,6 @@ fn main() -> io::Result<()> {
         multicast_receiver(mult_recv_data).unwrap();
     });
 
-    let mut names: Vec<String>;
     //
     let mut buf = vec![0 as u8; 4096];
     for stream in listener.incoming() {
@@ -178,11 +199,7 @@ fn main() -> io::Result<()> {
                         thread::spawn(move || {
                             command_processor(&com, stream, dat.lock().unwrap()).unwrap();
                         });
-                        names = Vec::new();
-                        for key in data.lock().unwrap().shared.keys() {
-                            names.push(key.clone());
-                        }
-                        sndr.send(names).unwrap();
+                        
                     }
                     Err(_) => {
                         println!("An error occurred, {}", stream.peer_addr().unwrap());
