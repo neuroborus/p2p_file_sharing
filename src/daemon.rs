@@ -72,6 +72,8 @@ fn command_processor(
             stream.write(serialized.as_bytes()).unwrap();
         }
     }
+    
+    println!("{:?}", data);
 
     Ok(())
 }
@@ -101,9 +103,12 @@ fn multicast_responder(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
     let mut shared: Vec<String>;
     let mut buf = vec![0; 4096];
     loop {
+        println!("MLTCST_RESPOND PART 1");
         let (len, remote_addr) = listener.recv_from(&mut buf)?;
         let message = &buf[..len];
-        let mut stream = TcpStream::connect(remote_addr)?;
+        println!("MLTCST_RESPOND PART 2 {}", remote_addr);
+        let mut stream = TcpStream::connect((remote_addr.ip(), PORT_SCAN_TCP))?;
+        println!("MLTCST_RESPOND PART 3");
 
         if message == SCAN_REQUEST {
             let dat = data.lock().unwrap();
@@ -118,7 +123,7 @@ fn multicast_responder(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
 }
 
 fn multicast_receiver(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
-    let listener = TcpListener::bind((Ipv4Addr::new(0, 0, 0, 0), PORT_MULTICAST))?;
+    let listener = TcpListener::bind((Ipv4Addr::new(0, 0, 0, 0), PORT_SCAN_TCP))?;
     //get names of files with tcp (his shared - your available)
     let mut buf = vec![0 as u8; 4096];
     for stream in listener.incoming() {
@@ -194,7 +199,7 @@ fn main() -> io::Result<()> {
                             }
                         }
 
-                        println! {"{:?}", *data};
+                        println!("{:?}", *data);
                         let dat = data.clone();
                         thread::spawn(move || {
                             command_processor(&com, stream, dat.lock().unwrap()).unwrap();
