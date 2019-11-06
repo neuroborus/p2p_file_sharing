@@ -65,24 +65,6 @@ fn command_processor(
     Ok(())
 }
 
-/* fn multicast_responder(rcvr: Receiver<Vec<String>>) -> io::Result<()> {
-    let listener = bind_multicast(&ADDR_DAEMON_MULTICAST, PORT_MULTICAST)?;
-    listener.join_multicast_v4(&ADDR_DAEMON_MULTICAST, &Ipv4Addr::new(0, 0, 0, 0))?;
-
-    let mut shared: Vec<String>;
-    let mut buf = vec![0; 4096];
-    loop {
-        let (len, remote_addr) = listener.recv_from(&mut buf)?;
-        let message = &buf[..len];
-        let mut stream = TcpStream::connect(remote_addr)?;
-
-        if message == SCAN_REQUEST {
-            shared = rcvr.recv().unwrap(); //Get vec of names
-            let serialized = serde_json::to_string(&shared)?;
-            stream.write(serialized.as_bytes()).unwrap(); //Send our "shared"
-        }
-    }
-} */
 fn multicast_responder(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
 
     let this_daemon_ip = get_this_daemon_ip().unwrap();
@@ -93,13 +75,14 @@ fn multicast_responder(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
     let mut shared: Vec<String>;
     let mut buf = vec![0; 4096];
     loop {
-        println!("MLTCST_RESPOND PART 1");
+        //println!("MLTCST_RESPOND PART 1");
         let (len, remote_addr) = listener.recv_from(&mut buf)?;
-        println!("MLTCST_RESPOND PART 2 {}", remote_addr);
+        //println!("MLTCST_RESPOND PART 2 {}", remote_addr);
         if remote_addr.ip() != this_daemon_ip {
+            //check if that's not our daemon, then we will respond
             let message = &buf[..len];
             let mut stream = TcpStream::connect((remote_addr.ip(), PORT_SCAN_TCP))?;
-            println!("MLTCST_RESPOND PART 3");
+            println!("MULTICAST RESPONDING TO {}", remote_addr.ip());
 
             if message == SCAN_REQUEST {
                 let dat = data.lock().unwrap();
