@@ -2,7 +2,7 @@ pub use std::{
     collections::{HashMap, LinkedList},
     env, io,
     io::{Read, Write},
-    net::{Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream, UdpSocket},
+    net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream, UdpSocket},
     path::PathBuf,
     sync::{
         mpsc,
@@ -10,7 +10,11 @@ pub use std::{
         Arc, Mutex, MutexGuard,
     },
     thread,
+    str,
+    str::FromStr
 };
+pub use rand::Rng;
+use serde_derive::*;
 //pub enum c_type{share}
 
 //pub const ADDR_DAEMON: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 123);
@@ -18,9 +22,43 @@ pub const ADDR_DAEMON_MULTICAST: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 124);
 pub const PORT_CLIENT_DAEMON: u16 = 7645;
 pub const PORT_MULTICAST: u16 = 7646;
 pub const PORT_SCAN_TCP: u16 = 7647;
+pub const GET_SELF_IP_PORT: u16 = 60005;
 pub const SCAN_REQUEST: &[u8; 20] = b"UDP_Scan_Request_P2P";
 
-use serde_derive::*;
+
+#[cfg(windows)]
+pub fn bind_multicast(_addr: &Ipv4Addr, port: u16) -> io::Result<UdpSocket> {
+    UdpSocket::bind((Ipv4Addr::new(0, 0, 0, 0), port))
+}
+
+#[cfg(unix)]
+pub fn bind_multicast(addr: &Ipv4Addr, port: u16) -> io::Result<UdpSocket> {
+    UdpSocket::bind((*addr, port))
+}
+
+pub fn get_this_daemon_ip() -> io::Result<IpAddr> {
+
+    let unique_number = rand::thread_rng().gen::<u128>();
+    let mut self_ip : IpAddr = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+    {
+        let local_network: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
+        let listener = bind_multicast(&ADDR_DAEMON_MULTICAST, GET_SELF_IP_PORT)?;
+        listener.join_multicast_v4(&ADDR_DAEMON_MULTICAST, &local_network).unwrap();
+        {
+            let socket = UdpSocket::bind((local_network, 0)).unwrap();
+            socket.send_to(unique_number.to_string().as_bytes(), (ADDR_DAEMON_MULTICAST, GET_SELF_IP_PORT)).unwrap();
+        }
+        let mut buf = vec![0; 4096];
+        let (len, remote_addr) = listener.recv_from(&mut buf).unwrap();
+        let msg = &buf[..len];
+        let rec_num = u128::from_str(str::from_utf8(msg).unwrap()).unwrap();
+        if rec_num == unique_number {
+            self_ip = remote_addr.ip();
+        }
+    }
+    Ok(self_ip)
+}
+
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Command {

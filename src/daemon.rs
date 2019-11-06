@@ -1,17 +1,4 @@
 use lib::*;
-// On Windows, unlike all Unix variants, it is improper to bind to the multicast address
-//
-// see https://msdn.microsoft.com/en-us/library/windows/desktop/ms737550(v=vs.85).aspx
-#[cfg(windows)]
-fn bind_multicast(_addr: &Ipv4Addr, port: u16) -> io::Result<UdpSocket> {
-    UdpSocket::bind((Ipv4Addr::new(0, 0, 0, 0), port))
-}
-
-// On unixes we bind to the multicast address, which causes multicast packets to be filtered
-#[cfg(unix)]
-fn bind_multicast(addr: &Ipv4Addr, port: u16) -> io::Result<UdpSocket> {
-    UdpSocket::bind((*addr, port))
-}
 
 ///
 fn command_processor(
@@ -97,6 +84,9 @@ fn command_processor(
     }
 } */
 fn multicast_responder(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
+
+    let this_daemon_ip = get_this_daemon_ip().unwrap();
+
     let listener = bind_multicast(&ADDR_DAEMON_MULTICAST, PORT_MULTICAST)?;
     listener.join_multicast_v4(&ADDR_DAEMON_MULTICAST, &Ipv4Addr::new(0, 0, 0, 0))?;
 
@@ -105,19 +95,21 @@ fn multicast_responder(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
     loop {
         println!("MLTCST_RESPOND PART 1");
         let (len, remote_addr) = listener.recv_from(&mut buf)?;
-        let message = &buf[..len];
         println!("MLTCST_RESPOND PART 2 {}", remote_addr);
-        let mut stream = TcpStream::connect((remote_addr.ip(), PORT_SCAN_TCP))?;
-        println!("MLTCST_RESPOND PART 3");
+        if remote_addr.ip() != this_daemon_ip {
+            let message = &buf[..len];
+            let mut stream = TcpStream::connect((remote_addr.ip(), PORT_SCAN_TCP))?;
+            println!("MLTCST_RESPOND PART 3");
 
-        if message == SCAN_REQUEST {
-            let dat = data.lock().unwrap();
-            shared = Vec::new();
-            for key in dat.shared.keys() {
-                shared.push(key.clone());
+            if message == SCAN_REQUEST {
+                let dat = data.lock().unwrap();
+                shared = Vec::new();
+                for key in dat.shared.keys() {
+                    shared.push(key.clone());
+                }
+                let serialized = serde_json::to_string(&shared)?;
+                stream.write(serialized.as_bytes()).unwrap(); //Send our "shared"
             }
-            let serialized = serde_json::to_string(&shared)?;
-            stream.write(serialized.as_bytes()).unwrap(); //Send our "shared"
         }
     }
 }
