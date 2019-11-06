@@ -1,17 +1,4 @@
 use lib::*;
-// On Windows, unlike all Unix variants, it is improper to bind to the multicast address
-//
-// see https://msdn.microsoft.com/en-us/library/windows/desktop/ms737550(v=vs.85).aspx
-#[cfg(windows)]
-fn bind_multicast(_addr: &Ipv4Addr, port: u16) -> io::Result<UdpSocket> {
-    UdpSocket::bind((Ipv4Addr::new(0, 0, 0, 0), port))
-}
-
-// On unixes we bind to the multicast address, which causes multicast packets to be filtered
-#[cfg(unix)]
-fn bind_multicast(addr: &Ipv4Addr, port: u16) -> io::Result<UdpSocket> {
-    UdpSocket::bind((*addr, port))
-}
 
 ///
 fn command_processor(
@@ -47,42 +34,9 @@ fn command_processor(
             println!("!Scan!");
             let socket = UdpSocket::bind((Ipv4Addr::new(0, 0, 0, 0), 0))?;
             socket.send_to(SCAN_REQUEST, (ADDR_DAEMON_MULTICAST, PORT_MULTICAST))?;
-            //get names of files with tcp (his shared - your available)
-            let listener = TcpListener::bind((Ipv4Addr::new(0, 0, 0, 0), PORT_MULTICAST))?;
+            data.available.clear();// clear list of available files to download
+            //the list gonna be refreshed in multicast_receiver
 
-            let mut buf = vec![0 as u8; 4096];
-            for stream in listener.incoming() {
-                match stream {
-                    Ok(mut stream) => {
-                        match stream.read(&mut buf) {
-                            Ok(size) => {
-                                //Get List of names
-                                let names: Vec<String> = serde_json::from_slice(&buf[..size])?;
-                                for name in names.into_iter() {
-                                    if data.available.contains_key(&name) {
-                                        //If file already exist just update Vec of IP
-                                        data.available
-                                            .get_mut(&name)
-                                            .unwrap()
-                                            .push(stream.peer_addr().unwrap());
-                                    } else {
-                                        //In another case - adding file with first IP that share it
-                                        let mut v: Vec<SocketAddr> = Vec::new();
-                                        v.push(stream.peer_addr().unwrap());
-                                        data.available.insert(name, v);
-                                    }
-                                }
-                            }
-                            Err(_) => {
-                                println!("An error occurred, {}", stream.peer_addr().unwrap());
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        println!("Error: {}", e);
-                    }
-                }
-            }
             let answ = Answer::Ok;
             let serialized = serde_json::to_string(&answ)?;
             stream.write(serialized.as_bytes()).unwrap();
@@ -105,27 +59,81 @@ fn command_processor(
             stream.write(serialized.as_bytes()).unwrap();
         }
     }
+    
+    println!("{:?}", data);
 
     Ok(())
 }
 
-fn multicast_responder(rcvr: Receiver<Vec<String>>) -> io::Result<()> {
+fn multicast_responder(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
+
+    let this_daemon_ip = get_this_daemon_ip().unwrap();
+
     let listener = bind_multicast(&ADDR_DAEMON_MULTICAST, PORT_MULTICAST)?;
     listener.join_multicast_v4(&ADDR_DAEMON_MULTICAST, &Ipv4Addr::new(0, 0, 0, 0))?;
 
     let mut shared: Vec<String>;
     let mut buf = vec![0; 4096];
     loop {
+        //println!("MLTCST_RESPOND PART 1");
         let (len, remote_addr) = listener.recv_from(&mut buf)?;
-        let message = &buf[..len];
-        let mut stream = TcpStream::connect(remote_addr)?;
+        //println!("MLTCST_RESPOND PART 2 {}", remote_addr);
+        if remote_addr.ip() != this_daemon_ip {
+            //check if that's not our daemon, then we will respond
+            let message = &buf[..len];
+            let mut stream = TcpStream::connect((remote_addr.ip(), PORT_SCAN_TCP))?;
+            println!("MULTICAST RESPONDING TO {}", remote_addr.ip());
 
-        if message == SCAN_REQUEST {
-            shared = rcvr.recv().unwrap(); //Get vec of names
-            let serialized = serde_json::to_string(&shared)?;
-            stream.write(serialized.as_bytes()).unwrap(); //Send our "shared"
+            if message == SCAN_REQUEST {
+                let dat = data.lock().unwrap();
+                shared = Vec::new();
+                for key in dat.shared.keys() {
+                    shared.push(key.clone());
+                }
+                let serialized = serde_json::to_string(&shared)?;
+                stream.write(serialized.as_bytes()).unwrap(); //Send our "shared"
+            }
         }
     }
+}
+
+fn multicast_receiver(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
+    let listener = TcpListener::bind((Ipv4Addr::new(0, 0, 0, 0), PORT_SCAN_TCP))?;
+    //get names of files with tcp (his shared - your available)
+    let mut buf = vec![0 as u8; 4096];
+    for stream in listener.incoming() {
+        match stream {
+            Ok(mut stream) => {
+                match stream.read(&mut buf) {
+                    Ok(size) => {
+                        //Get List of names
+                        let names: Vec<String> = serde_json::from_slice(&buf[..size])?;
+                        for name in names.into_iter() {
+                            if data.lock().unwrap().available.contains_key(&name) {
+                                //If file already exist just update Vec of IP
+                                data.lock().unwrap().available
+                                    .get_mut(&name)
+                                    .unwrap()
+                                    .push(stream.peer_addr().unwrap());
+                            } else {
+                                //In another case - adding file with first IP that share it
+                                let mut v: Vec<SocketAddr> = Vec::new();
+                                v.push(stream.peer_addr().unwrap());
+                                data.lock().unwrap().available.insert(name, v);
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        println!("An error occurred, {}", stream.peer_addr().unwrap());
+                    }
+                }
+            }
+            Err(e) => {
+                println!("Error: {}", e);
+            }
+        }
+    }
+    Ok(())
 }
 
 fn main() -> io::Result<()> {
@@ -135,10 +143,17 @@ fn main() -> io::Result<()> {
     //All about files daemon knowledge
     let data: Arc<Mutex<DataTemp>> = Arc::new(Mutex::new(DataTemp::new()));
     //Channel for transfeering info about sharing to multicast_responder
-    let (sndr, rcvr): (Sender<Vec<String>>, Receiver<Vec<String>>) = mpsc::channel();
 
-    thread::spawn(move || multicast_responder(rcvr));
-    let mut names: Vec<String>;
+    let mult_resp_data = data.clone();
+    thread::spawn(move || {
+        multicast_responder(mult_resp_data).unwrap();
+    });
+
+    let mult_recv_data = data.clone();
+    thread::spawn(move || {
+        multicast_receiver(mult_recv_data).unwrap();
+    });
+
     //
     let mut buf = vec![0 as u8; 4096];
     for stream in listener.incoming() {
@@ -159,16 +174,12 @@ fn main() -> io::Result<()> {
                             }
                         }
 
-                        println! {"{:?}", *data};
+                        println!("{:?}", *data);
                         let dat = data.clone();
                         thread::spawn(move || {
                             command_processor(&com, stream, dat.lock().unwrap()).unwrap();
                         });
-                        names = Vec::new();
-                        for key in data.lock().unwrap().shared.keys() {
-                            names.push(key.clone());
-                        }
-                        sndr.send(names).unwrap();
+                        
                     }
                     Err(_) => {
                         println!("An error occurred, {}", stream.peer_addr().unwrap());
