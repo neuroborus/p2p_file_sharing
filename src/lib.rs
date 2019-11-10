@@ -1,7 +1,7 @@
 pub use std::{
     collections::{HashMap, LinkedList},
     env, io,
-    io::{Read, Write},
+    io::{Read, Write, SeekFrom, prelude::*},
     net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream, UdpSocket},
     path::PathBuf,
     sync::{
@@ -10,9 +10,12 @@ pub use std::{
         Arc, Mutex, MutexGuard,
     },
     thread,
+    time::Duration,
     str,
-    str::FromStr
+    str::FromStr,
+    fs
 };
+pub use threadpool::ThreadPool;
 pub use rand::Rng;
 use serde_derive::*;
 //pub enum c_type{share}
@@ -21,6 +24,7 @@ pub const ADDR_DAEMON_MULTICAST: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 123);
 pub const PORT_MULTICAST: u16 = 7645;
 pub const PORT_CLIENT_DAEMON: u16 = 7646;
 pub const PORT_SCAN_TCP: u16 = 7647;
+pub const PORT_FILE_SHARE: u16 = 7648;
 pub const GET_SELF_IP_PORT: u16 = 60005;
 pub const SCAN_REQUEST: &[u8; 20] = b"UDP_Scan_Request_P2P";
 
@@ -69,10 +73,11 @@ pub fn port_is_available(port: u16) -> bool {
         Err(_) => false,
     }
 }
+
 pub fn get_available_port() -> Option<u16> {
     let mut rng = rand::thread_rng();
     loop {
-        let port = rng.gen_range(56000, 65000);
+        let port = rng.gen_range(60000, 60200);
         if port_is_available(port) {
             return Some(port);
         }
@@ -99,32 +104,65 @@ pub enum Command {
 pub enum Answer {
     //Daemon -> Client
     Ok,
+    Err(String),
     Ls {
         available_map: HashMap<String, Vec<SocketAddr>>,
     }, //available
     Status {
         transferring_map: HashMap<String, Vec<SocketAddr>>,
         shared_map: HashMap<String, PathBuf>,
-    },
+        downloading_map: Vec<String>
+    }
 }
 
 #[derive(Debug)]
 pub struct DataTemp {
     //Available to downloading files: name_of_file--shared IP addresses
     pub available: HashMap<String, Vec<SocketAddr>>,
-    pub downloading: HashMap<String, Vec<SocketAddr>>, //Already downloading
+    //pub downloading: HashMap<String, Vec<SocketAddr>>, //Already downloading
     //
     //Your files, that available to transfer
     pub shared: HashMap<String, PathBuf>, //FileName - Path
-    pub transferring: HashMap<String, Vec<SocketAddr>>, //Already transferring
+    //pub transferring: HashMap<String, Vec<SocketAddr>>, //Already transferring
 }
+
 impl DataTemp {
     pub fn new() -> Self {
         DataTemp {
             available: HashMap::new(),
-            downloading: HashMap::new(),
+            //downloading: HashMap::new(),
             shared: HashMap::new(),
-            transferring: HashMap::new(),
+            //transferring: HashMap::new(),
         }
     }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct FirstRequest {
+    pub filename: String,
+    pub action: FileSizeorInfo
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum FileSizeorInfo {
+    Info(FileInfo),
+    Size
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct FileInfo {
+    pub from_block: u32,
+    pub to_block: u32
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct AnswerToFirstRequest {
+    pub filename: String,
+    pub answer: EnumAnswer
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum EnumAnswer {
+    Size(u64),
+    NotExist
 }
