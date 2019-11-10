@@ -38,7 +38,7 @@ fn command_processor(
 
             match answ {
                 Answer::Ok => {
-                    let available_list = data.available.clone();
+                    let available_list = data.available.get(f_name).unwrap().clone();
                     let filename = f_name.clone();
                     let savepath = s_path.clone();
                     let file_thread = thread::spawn(move || {
@@ -285,62 +285,64 @@ fn share_to_peer(
     Ok(())
 }
 
-fn download_request(
-    file_name: String,
-    file_path: PathBuf,
-    available: HashMap<String, Vec<SocketAddr>>,
-    downloading: Arc<Mutex<Vec<String>>>,
-) -> io::Result<()> {
-
+fn get_fsize_on_each_peer(peer_list: Vec<SocketAddr>, file_name: String) -> io::Result<Vec<(SocketAddr, u64)>> {
     let mut buf = vec![0; 4096];
     let mut peers: Vec<(SocketAddr, u64)> = Vec::new();
+    let request_to_get_size = serde_json::to_string(&FirstRequest {
+        filename: file_name.clone(),
+        action: FileSizeorInfo::Size,
+    })?;
+    let mut refresh = true;
 
-    {
-        let request_to_get_size = serde_json::to_string(&FirstRequest {
-            filename: file_name.clone(),
-            action: FileSizeorInfo::Size,
-        })?;
-        let mut refresh = true;
-
-        for peer in available.get(&file_name).unwrap().iter() {
-            let mut stream: TcpStream;
-            match TcpStream::connect((peer.ip(), PORT_FILE_SHARE)) {
-                Ok(_stream) => {
-                    stream = _stream;
-                }
-                Err(e) => {
-                    eprintln!("Error while connecting to {} to download a file {}", peer.ip(), e);
-                    continue;
-                }
+    for peer in peer_list.iter() {
+        let mut stream: TcpStream;
+        match TcpStream::connect((peer.ip(), PORT_FILE_SHARE)) {
+            Ok(_stream) => {
+                stream = _stream;
             }
-            stream.set_read_timeout(Some(Duration::new(30, 0)))?;
-            stream.set_write_timeout(Some(Duration::new(30, 0)))?;
-            stream.write_all(request_to_get_size.as_bytes())?;
-            match stream.read(&mut buf) {
-                Ok(size) => {
-                    let answer: AnswerToFirstRequest = serde_json::from_slice(&buf[..size])?;
-                    match answer.answer {
-                        EnumAnswer::Size(file_size) => {
-                            peers.push((stream.peer_addr()?, file_size));
-                        }
-                        EnumAnswer::NotExist => {
-                            if refresh {
-                                println!("That peer doesn't share a file! Please refresh list of files with scan!");
-                                refresh = false;
-                            }
+            Err(e) => {
+                eprintln!("Error while connecting to {} to download a file {}", peer.ip(), e);
+                continue;
+            }
+        }
+        stream.set_read_timeout(Some(Duration::new(30, 0)))?;
+        stream.set_write_timeout(Some(Duration::new(30, 0)))?;
+        stream.write_all(request_to_get_size.as_bytes())?;
+        match stream.read(&mut buf) {
+            Ok(size) => {
+                let answer: AnswerToFirstRequest = serde_json::from_slice(&buf[..size])?;
+                match answer.answer {
+                    EnumAnswer::Size(file_size) => {
+                        peers.push((stream.peer_addr()?, file_size));
+                    }
+                    EnumAnswer::NotExist => {
+                        if refresh {
+                            println!("That peer doesn't share a file! Please refresh list of files with scan!");
+                            refresh = false;
                         }
                     }
                 }
-                Err(e) => {
-                    eprintln!(
-                        "Error {} while interracting with {:?}",
-                        e,
-                        stream.peer_addr()
-                    );
-                }
+            }
+            Err(e) => {
+                eprintln!(
+                    "Error {} while interracting with {:?}",
+                    e,
+                    stream.peer_addr()
+                );
             }
         }
     }
+    Ok(peers)
+}
+
+fn download_request(
+    file_name: String,
+    file_path: PathBuf,
+    available: Vec<SocketAddr>,
+    downloading: Arc<Mutex<Vec<String>>>,
+) -> io::Result<()> {
+    
+    let mut peers: Vec<(SocketAddr, u64)> = get_fsize_on_each_peer(available, file_name.clone()).unwrap();
 
     let file_size: u64;
     let peers_count: u16;
