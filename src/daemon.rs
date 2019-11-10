@@ -335,6 +335,22 @@ fn get_fsize_on_each_peer(peer_list: Vec<SocketAddr>, file_name: String) -> io::
     Ok(peers)
 }
 
+fn remove_other_fsizes_in_vec(mut peers: Vec<(SocketAddr, u64)>) -> io::Result<Vec<(SocketAddr, u64)>> {
+    let mut _max_peers: u16 = 1;
+    let mut fsize_count: Vec<(u64, u16)> = Vec::new();
+    peers.iter().for_each( |(_, fsize)| {
+        let buffer_var = fsize_count.iter_mut().find(|(size, _)| *size == *fsize);
+        if buffer_var == Option::None {
+            fsize_count.push((*fsize, 1));
+        } else {
+            buffer_var.unwrap().1 += 1;
+        }
+    });
+    let file_size = fsize_count.iter().find(|(_, count)| _max_peers == *count).unwrap().0;
+    peers.retain(|(_, size)| *size == file_size); // removes peers with other file size
+    Ok(peers)
+}
+
 fn download_request(
     file_name: String,
     file_path: PathBuf,
@@ -342,27 +358,11 @@ fn download_request(
     downloading: Arc<Mutex<Vec<String>>>,
 ) -> io::Result<()> {
     
-    let mut peers: Vec<(SocketAddr, u64)> = get_fsize_on_each_peer(available, file_name.clone()).unwrap();
+    let peers = get_fsize_on_each_peer(available, file_name.clone()).unwrap();
+    let peers = remove_other_fsizes_in_vec(peers).unwrap();
 
-    let file_size: u64;
-    let peers_count: u16;
-    let prs = peers.clone();
-    {
-        let mut _max_peers: u16 = 1;
-        let mut fsize_count: Vec<(u64, u16)> = Vec::new();
-        prs.iter().for_each( |(_, fsize)| {
-            let buffer_var = fsize_count.iter_mut().find(|(size, _)| *size == *fsize);
-            if buffer_var == Option::None {
-                fsize_count.push((*fsize, 1));
-            } else {
-                buffer_var.unwrap().1 += 1;
-            }
-        });
-        _max_peers = fsize_count.iter().max_by_key(|(_, count)| *count).unwrap().1;
-        file_size = fsize_count.iter().find(|(_, count)| _max_peers == *count).unwrap().0;
-        peers_count = _max_peers;
-    }
-    peers.retain(|(_peer, size)| *size == file_size); // removes peers with other file size
+    let file_size = peers.get(0).unwrap().1;
+    let peers_count = peers.len();
 
     let blocks = (file_size / 4096) as u32;
     let file_size: u64 = file_size;
