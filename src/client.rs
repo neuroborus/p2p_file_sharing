@@ -31,8 +31,6 @@ fn main() -> io::Result<()> {
                 println!("No path for sharing!");
                 flag = false;
             }
-            //println!("\n\n\tshare\n");
-            //////////
             if flag {
                 let f_path = PathBuf::from(matches.value_of("FILE_PATH").unwrap());
 
@@ -41,28 +39,24 @@ fn main() -> io::Result<()> {
                     let com = Command::Share { file_path: f_path };
                     //
                     let serialized = serde_json::to_string(&com)?;
-                    stream.write(serialized.as_bytes()).unwrap();
+                    stream.write_all(serialized.as_bytes()).unwrap();
                 } else {
-                    println!("File does not exists!");
+                    eprintln!("File does not exists!");
                     flag = false;
                 }
             }
         }
         "scan" => {
-            //println!("\n\n\tscan\n");
-            //////////
             let com = Command::Scan;
             //
             let serialized = serde_json::to_string(&com)?;
-            stream.write(serialized.as_bytes()).unwrap();
+            stream.write_all(serialized.as_bytes()).unwrap();
         }
         "ls" => {
-            //println!("\n\n\tls\n");
-            //////////
             let com = Command::Ls;
             //
             let serialized = serde_json::to_string(&com)?;
-            stream.write(serialized.as_bytes()).unwrap();
+            stream.write_all(serialized.as_bytes()).unwrap();
         }
         "download" => {
             if !matches.is_present("FILE_NAME") {
@@ -79,8 +73,7 @@ fn main() -> io::Result<()> {
                 }
                 //
                 let f_name: String = String::from(matches.value_of("FILE_NAME").unwrap());
-                //println!("\n\n\tls\n");
-                //////////
+                //
                 let com: Command;
                 if matches.is_present("FLG_WAIT") {
                     //If user wants to block console until download is finished
@@ -98,19 +91,17 @@ fn main() -> io::Result<()> {
                 }
                 //
                 let serialized = serde_json::to_string(&com)?;
-                stream.write(serialized.as_bytes()).unwrap();
+                stream.write_all(serialized.as_bytes()).unwrap();
             }
         }
         "status" => {
-            //println!("\n\n\tstatus\n");
-            //////////
             let com = Command::Status;
             //
             let serialized = serde_json::to_string(&com)?;
-            stream.write(serialized.as_bytes()).unwrap();
+            stream.write_all(serialized.as_bytes()).unwrap();
         }
         _ => {
-            println!("Wrong command!");
+            eprintln!("Wrong command!");
             flag = false;
         }
     }
@@ -123,7 +114,7 @@ fn main() -> io::Result<()> {
                 println!("{:?}", answ);
             }
             Err(_) => {
-                println!("An error occurred, {}", stream.peer_addr().unwrap());
+                eprintln!("An error occurred, {}", stream.peer_addr().unwrap());
             }
         }
     }

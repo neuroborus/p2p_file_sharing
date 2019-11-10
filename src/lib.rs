@@ -1,9 +1,13 @@
+pub use rand::Rng;
+use serde_derive::*;
 pub use std::{
     collections::{HashMap, LinkedList},
-    env, io,
-    io::{Read, Write, SeekFrom, prelude::*},
+    env, fs, io,
+    io::{prelude::*, Read, SeekFrom, Write},
     net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream, UdpSocket},
     path::PathBuf,
+    str,
+    str::FromStr,
     sync::{
         mpsc,
         mpsc::{Receiver, Sender},
@@ -11,13 +15,8 @@ pub use std::{
     },
     thread,
     time::Duration,
-    str,
-    str::FromStr,
-    fs
 };
 pub use threadpool::ThreadPool;
-pub use rand::Rng;
-use serde_derive::*;
 //pub enum c_type{share}
 
 pub const ADDR_DAEMON_MULTICAST: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 123);
@@ -27,7 +26,6 @@ pub const PORT_SCAN_TCP: u16 = 7647;
 pub const PORT_FILE_SHARE: u16 = 7648;
 pub const GET_SELF_IP_PORT: u16 = 60005;
 pub const SCAN_REQUEST: &[u8; 20] = b"UDP_Scan_Request_P2P";
-
 
 #[cfg(windows)]
 pub fn bind_multicast(_addr: &Ipv4Addr, port: u16) -> io::Result<UdpSocket> {
@@ -40,16 +38,22 @@ pub fn bind_multicast(addr: &Ipv4Addr, port: u16) -> io::Result<UdpSocket> {
 }
 
 pub fn get_this_daemon_ip() -> io::Result<IpAddr> {
-
     let unique_number = rand::thread_rng().gen::<u128>();
-    let self_ip : IpAddr;
+    let self_ip: IpAddr;
     {
         let local_network: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
         let listener = bind_multicast(&ADDR_DAEMON_MULTICAST, GET_SELF_IP_PORT)?;
-        listener.join_multicast_v4(&ADDR_DAEMON_MULTICAST, &local_network).unwrap();
+        listener
+            .join_multicast_v4(&ADDR_DAEMON_MULTICAST, &local_network)
+            .unwrap();
         {
             let socket = UdpSocket::bind((local_network, 0)).unwrap();
-            socket.send_to(unique_number.to_string().as_bytes(), (ADDR_DAEMON_MULTICAST, GET_SELF_IP_PORT)).unwrap();
+            socket
+                .send_to(
+                    unique_number.to_string().as_bytes(),
+                    (ADDR_DAEMON_MULTICAST, GET_SELF_IP_PORT),
+                )
+                .unwrap();
         }
         let mut buf = vec![0; 4096];
         loop {
@@ -100,7 +104,7 @@ pub enum Command {
     Status,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum Answer {
     //Daemon -> Client
     Ok,
@@ -111,8 +115,8 @@ pub enum Answer {
     Status {
         transferring_map: HashMap<String, Vec<SocketAddr>>,
         shared_map: HashMap<String, PathBuf>,
-        downloading_map: Vec<String>
-    }
+        downloading_map: Vec<String>,
+    },
 }
 
 #[derive(Debug)]
@@ -123,7 +127,7 @@ pub struct DataTemp {
     //
     //Your files, that available to transfer
     pub shared: HashMap<String, PathBuf>, //FileName - Path
-    //pub transferring: HashMap<String, Vec<SocketAddr>>, //Already transferring
+                                          //pub transferring: HashMap<String, Vec<SocketAddr>>, //Already transferring
 }
 
 impl DataTemp {
@@ -140,29 +144,29 @@ impl DataTemp {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct FirstRequest {
     pub filename: String,
-    pub action: FileSizeorInfo
+    pub action: FileSizeorInfo,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum FileSizeorInfo {
     Info(FileInfo),
-    Size
+    Size,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct FileInfo {
     pub from_block: u32,
-    pub to_block: u32
+    pub to_block: u32,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct AnswerToFirstRequest {
     pub filename: String,
-    pub answer: EnumAnswer
+    pub answer: EnumAnswer,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum EnumAnswer {
     Size(u64),
-    NotExist
+    NotExist,
 }
