@@ -455,7 +455,7 @@ fn download_request(
 fn download_from_peer(
     peer: SocketAddr,
     file_info: FirstRequest,
-    file_path: PathBuf,
+    _file_path: PathBuf,
     _downloading: Arc<Mutex<Vec<String>>>,
     file_size: u64,
     file_blocks: u32,
@@ -486,7 +486,7 @@ fn download_from_peer(
     }
 
     let last_block_size = file_size as usize % 4096;
-    let mut file = fs::File::open(&file_path)?;
+    let mut file = fs::File::create(&file_info.filename)?;
     file.seek(SeekFrom::Start(4096 * fblock as u64))?;
     for i in fblock..lblock {
         if i == file_blocks {
