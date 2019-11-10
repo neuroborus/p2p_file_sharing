@@ -38,7 +38,7 @@ fn command_processor(
 
             match answ {
                 Answer::Ok => {
-                    let available_list = data.available.clone();
+                    let available_list = data.available.get(f_name).unwrap().clone();
                     let filename = f_name.clone();
                     let savepath = s_path.clone();
                     let file_thread = thread::spawn(move || {
@@ -186,6 +186,38 @@ fn share_responder(
     Ok(())
 }
 
+fn handle_first_share_request(
+    shared: HashMap<String, PathBuf>,
+    request: FirstRequest,
+    mut stream: TcpStream
+) -> Option<(FileInfo, String, u64, TcpStream)> {
+    let asked_filename: String = request.filename;
+    match request.action {
+        FileSizeorInfo::Size => {
+            let answ: AnswerToFirstRequest;
+            if shared.contains_key(&asked_filename) == false {
+                answ = AnswerToFirstRequest {
+                    filename: asked_filename.clone(),
+                    answer: EnumAnswer::NotExist,
+                };
+            } else {
+                let size_of_file: u64 =
+                    std::fs::metadata(shared.get(&asked_filename).unwrap()).unwrap().len(); //get file size
+                answ = AnswerToFirstRequest {
+                    filename: asked_filename.clone(),
+                    answer: EnumAnswer::Size(size_of_file),
+                };
+            }
+            let serialized = serde_json::to_string(&answ).unwrap();
+            stream.write_all(serialized.as_bytes()).unwrap();
+            return None;
+        }
+        FileSizeorInfo::Info(info) => {
+            return Some((info, asked_filename.clone(), std::fs::metadata(shared.get(&asked_filename).unwrap()).unwrap().len(), stream));
+        }
+    }
+}
+
 fn share_to_peer(
     mut stream: TcpStream,
     transferring: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>>,
@@ -196,39 +228,21 @@ fn share_to_peer(
     stream.set_read_timeout(Some(Duration::new(45, 0)))?;
     stream.set_write_timeout(Some(Duration::new(45, 0)))?;
 
-    let file_name: String;
     let file_info: FileInfo;
+    let file_name: String;
     let file_size: u64;
 
     match stream.read(&mut buf) {
         Ok(size) => {
             let request: FirstRequest = serde_json::from_slice(&buf[..size])?;
-            let asked_filename: String = request.filename;
-            match request.action {
-                FileSizeorInfo::Size => {
-                    let answ: AnswerToFirstRequest;
-                    if shared.contains_key(&asked_filename) == false {
-                        answ = AnswerToFirstRequest {
-                            filename: asked_filename.clone(),
-                            answer: EnumAnswer::NotExist,
-                        };
-                    } else {
-                        let size_of_file: u64 =
-                            std::fs::metadata(shared.get(&asked_filename).unwrap())?.len(); //get file size
-                        answ = AnswerToFirstRequest {
-                            filename: asked_filename.clone(),
-                            answer: EnumAnswer::Size(size_of_file),
-                        };
-                    }
-                    let serialized = serde_json::to_string(&answ)?;
-                    stream.write_all(serialized.as_bytes()).unwrap();
-                    return Ok(());
-                }
-                FileSizeorInfo::Info(info) => {
+            match handle_first_share_request(shared, request, stream) {
+                Some((info, name, size, s)) => {
                     file_info = info;
-                    file_name = asked_filename.clone();
-                    file_size = std::fs::metadata(shared.get(&asked_filename).unwrap())?.len();
+                    file_name = name;
+                    file_size = size;
+                    stream = s; 
                 }
+                None => { return Ok(()); }
             }
         }
         Err(e) => {
@@ -285,82 +299,84 @@ fn share_to_peer(
     Ok(())
 }
 
-fn download_request(
-    file_name: String,
-    file_path: PathBuf,
-    available: HashMap<String, Vec<SocketAddr>>,
-    downloading: Arc<Mutex<Vec<String>>>,
-) -> io::Result<()> {
-
+fn get_fsize_on_each_peer(peer_list: Vec<SocketAddr>, file_name: String) -> io::Result<Vec<(SocketAddr, u64)>> {
     let mut buf = vec![0; 4096];
     let mut peers: Vec<(SocketAddr, u64)> = Vec::new();
+    let request_to_get_size = serde_json::to_string(&FirstRequest {
+        filename: file_name.clone(),
+        action: FileSizeorInfo::Size,
+    })?;
+    let mut refresh = true;
 
-    {
-        let request_to_get_size = serde_json::to_string(&FirstRequest {
-            filename: file_name.clone(),
-            action: FileSizeorInfo::Size,
-        })?;
-        let mut refresh = true;
-
-        for peer in available.get(&file_name).unwrap().iter() {
-            let mut stream: TcpStream;
-            match TcpStream::connect((peer.ip(), PORT_FILE_SHARE)) {
-                Ok(_stream) => {
-                    stream = _stream;
-                }
-                Err(e) => {
-                    eprintln!("Error while connecting to {} to download a file {}", peer.ip(), e);
-                    continue;
-                }
+    for peer in peer_list.iter() {
+        let mut stream: TcpStream;
+        match TcpStream::connect((peer.ip(), PORT_FILE_SHARE)) {
+            Ok(_stream) => {
+                stream = _stream;
             }
-            stream.set_read_timeout(Some(Duration::new(30, 0)))?;
-            stream.set_write_timeout(Some(Duration::new(30, 0)))?;
-            stream.write_all(request_to_get_size.as_bytes())?;
-            match stream.read(&mut buf) {
-                Ok(size) => {
-                    let answer: AnswerToFirstRequest = serde_json::from_slice(&buf[..size])?;
-                    match answer.answer {
-                        EnumAnswer::Size(file_size) => {
-                            peers.push((stream.peer_addr()?, file_size));
-                        }
-                        EnumAnswer::NotExist => {
-                            if refresh {
-                                println!("That peer doesn't share a file! Please refresh list of files with scan!");
-                                refresh = false;
-                            }
+            Err(e) => {
+                eprintln!("Error while connecting to {} to download a file {}", peer.ip(), e);
+                continue;
+            }
+        }
+        stream.set_read_timeout(Some(Duration::new(30, 0)))?;
+        stream.set_write_timeout(Some(Duration::new(30, 0)))?;
+        stream.write_all(request_to_get_size.as_bytes())?;
+        match stream.read(&mut buf) {
+            Ok(size) => {
+                let answer: AnswerToFirstRequest = serde_json::from_slice(&buf[..size])?;
+                match answer.answer {
+                    EnumAnswer::Size(file_size) => {
+                        peers.push((stream.peer_addr()?, file_size));
+                    }
+                    EnumAnswer::NotExist => {
+                        if refresh {
+                            println!("That peer doesn't share a file! Please refresh list of files with scan!");
+                            refresh = false;
                         }
                     }
                 }
-                Err(e) => {
-                    eprintln!(
-                        "Error {} while interracting with {:?}",
-                        e,
-                        stream.peer_addr()
-                    );
-                }
+            }
+            Err(e) => {
+                eprintln!(
+                    "Error {} while interracting with {:?}",
+                    e,
+                    stream.peer_addr()
+                );
             }
         }
     }
+    Ok(peers)
+}
 
-    let file_size: u64;
-    let peers_count: u16;
-    let prs = peers.clone();
-    {
-        let mut _max_peers: u16 = 1;
-        let mut fsize_count: Vec<(u64, u16)> = Vec::new();
-        prs.iter().for_each( |(_, fsize)| {
-            let buffer_var = fsize_count.iter_mut().find(|(size, _)| *size == *fsize);
-            if buffer_var == Option::None {
-                fsize_count.push((*fsize, 1));
-            } else {
-                buffer_var.unwrap().1 += 1;
-            }
-        });
-        _max_peers = fsize_count.iter().max_by_key(|(_, count)| *count).unwrap().1;
-        file_size = fsize_count.iter().find(|(_, count)| _max_peers == *count).unwrap().0;
-        peers_count = _max_peers;
-    }
-    peers.retain(|(_peer, size)| *size == file_size); // removes peers with other file size
+fn remove_other_fsizes_in_vec(mut peers: Vec<(SocketAddr, u64)>) -> io::Result<Vec<(SocketAddr, u64)>> {
+    let mut _max_peers: u16 = 1;
+    let mut fsize_count: Vec<(u64, u16)> = Vec::new();
+    peers.iter().for_each( |(_, fsize)| {
+        let buffer_var = fsize_count.iter_mut().find(|(size, _)| *size == *fsize);
+        if buffer_var == Option::None {
+            fsize_count.push((*fsize, 1));
+        } else {
+            buffer_var.unwrap().1 += 1;
+        }
+    });
+    let file_size = fsize_count.iter().find(|(_, count)| _max_peers == *count).unwrap().0;
+    peers.retain(|(_, size)| *size == file_size); // removes peers with other file size
+    Ok(peers)
+}
+
+fn download_request(
+    file_name: String,
+    file_path: PathBuf,
+    available: Vec<SocketAddr>,
+    downloading: Arc<Mutex<Vec<String>>>,
+) -> io::Result<()> {
+    
+    let peers = get_fsize_on_each_peer(available, file_name.clone()).unwrap();
+    let peers = remove_other_fsizes_in_vec(peers).unwrap();
+
+    let file_size = peers.get(0).unwrap().1;
+    let peers_count = peers.len();
 
     let blocks = (file_size / 4096) as u32;
     let file_size: u64 = file_size;
