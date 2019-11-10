@@ -291,8 +291,8 @@ fn download_request(
     available: HashMap<String, Vec<SocketAddr>>,
     downloading: Arc<Mutex<Vec<String>>>,
 ) -> io::Result<()> {
-    let mut buf = vec![0; 4096];
 
+    let mut buf = vec![0; 4096];
     let mut peers: Vec<(SocketAddr, u64)> = Vec::new();
 
     {
@@ -300,7 +300,6 @@ fn download_request(
             filename: file_name.clone(),
             action: FileSizeorInfo::Size,
         })?;
-
         let mut refresh = true;
 
         for peer in available.get(&file_name).unwrap().iter() {
@@ -310,11 +309,7 @@ fn download_request(
                     stream = _stream;
                 }
                 Err(e) => {
-                    eprintln!(
-                        "Error while connecting to {} to download a file {}",
-                        peer.ip(),
-                        e
-                    );
+                    eprintln!("Error while connecting to {} to download a file {}", peer.ip(), e);
                     continue;
                 }
             }
@@ -347,45 +342,37 @@ fn download_request(
         }
     }
 
-    let mut most_used_file_size: u64 = 1;
-    let mut how_much_peers: u16 = 0;
+    let file_size: u64;
+    let peers_count: u16;
+    let prs = peers.clone();
     {
-        let mut different_file_sizes: HashMap<u64, u16> = HashMap::new();
-
-        for (_peer, file_size) in peers.iter() {
-            if different_file_sizes.contains_key(file_size) {
-                let count: &mut u16 = different_file_sizes.get_mut(file_size).unwrap();
-                *count += 1;
+        let mut _max_peers: u16 = 1;
+        let mut fsize_count: Vec<(u64, u16)> = Vec::new();
+        prs.iter().for_each( |(_, fsize)| {
+            let buffer_var = fsize_count.iter_mut().find(|(size, _)| *size == *fsize);
+            if buffer_var == Option::None {
+                fsize_count.push((*fsize, 1));
             } else {
-                different_file_sizes.insert(*file_size, 1);
+                buffer_var.unwrap().1 += 1;
             }
-        }
-
-        for (key, count) in different_file_sizes.iter() {
-            if *count >= how_much_peers {
-                most_used_file_size = *key;
-                how_much_peers = *count;
-            }
-        }
+        });
+        _max_peers = fsize_count.iter().max_by_key(|(_, count)| *count).unwrap().1;
+        file_size = fsize_count.iter().find(|(_, count)| _max_peers == *count).unwrap().0;
+        peers_count = _max_peers;
     }
+    peers.retain(|(_peer, size)| *size == file_size); // removes peers with other file size
 
-    for _ in 0..(peers.len() - how_much_peers as usize) {
-        let pos: usize = peers
-            .iter()
-            .position(|(_peer, size)| *size != most_used_file_size)
-            .unwrap();
-        peers.remove(pos);
-    }
+    let blocks = (file_size / 4096) as u32;
+    let file_size: u64 = file_size;
+    let blocks_per_peer = blocks / (peers_count as u32);
 
-    let blocks = (most_used_file_size / 4096) as u32;
-    let file_size: u64 = most_used_file_size;
-    let blocks_per_peer = blocks / (how_much_peers as u32);
+    downloading.lock().unwrap().push(file_name.clone());
 
     let pool: ThreadPool;
 
     let downloaded_blocks: Arc<Mutex<Vec<(u32, u32)>>> = Arc::new(Mutex::new(Vec::new()));
 
-    if peers.len() >= blocks as usize {
+    if  (blocks as usize) < peers.len() {
         let file_info = FirstRequest {
             filename: file_name.clone(),
             action: FileSizeorInfo::Info(FileInfo {
@@ -394,7 +381,6 @@ fn download_request(
             }),
         };
         let fpath = file_path.clone();
-        let down_clone = downloading.clone();
         let block_watcher = downloaded_blocks.clone();
         let _fsize = file_size;
         let _blocks = blocks;
@@ -405,7 +391,6 @@ fn download_request(
                 peers[0].0.clone(),
                 file_info,
                 fpath,
-                down_clone,
                 _fsize,
                 _blocks,
                 block_watcher,
@@ -418,7 +403,7 @@ fn download_request(
         for i in 0..(peers.len() as u32) {
             let fblock = i * blocks_per_peer;
             let mut lblock = (i + 1) * blocks_per_peer;
-            if i == (how_much_peers as u32) - 1 && lblock != blocks + 1 {
+            if i == (peers_count as u32) - 1 && lblock != blocks + 1 {
                 lblock = blocks + 1;
             }
             let file_info = FirstRequest {
@@ -430,7 +415,6 @@ fn download_request(
             };
 
             let fpath = file_path.clone();
-            let down_clone = downloading.clone();
             let block_watcher = downloaded_blocks.clone();
             let _fsize = file_size;
             let _blocks = blocks;
@@ -440,7 +424,6 @@ fn download_request(
                     pr,
                     file_info,
                     fpath,
-                    down_clone,
                     _fsize,
                     _blocks,
                     block_watcher,
@@ -450,6 +433,7 @@ fn download_request(
         }
     }
     pool.join();
+    downloading.lock().unwrap().retain(|line| *line != file_name);
     Ok(())
 }
 
@@ -457,7 +441,6 @@ fn download_from_peer(
     peer: SocketAddr,
     file_info: FirstRequest,
     _file_path: PathBuf,
-    _downloading: Arc<Mutex<Vec<String>>>,
     file_size: u64,
     file_blocks: u32,
     _block_watcher: Arc<Mutex<Vec<(u32, u32)>>>,
