@@ -6,7 +6,7 @@ fn command_processor(
     mut stream: TcpStream,
     mut data: MutexGuard<DataTemp>,
     transferring: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>>,
-    downloading: Arc<Mutex<Vec<String>>>
+    downloading: Arc<Mutex<Vec<String>>>,
 ) -> io::Result<()> {
     match com {
         Command::Share { file_path: f_path } => {
@@ -17,7 +17,7 @@ fn command_processor(
 
             let answ = Answer::Ok;
             let serialized = serde_json::to_string(&answ)?;
-            stream.write(serialized.as_bytes()).unwrap();
+            stream.write_all(serialized.as_bytes()).unwrap();
         }
         Command::Download {
             file_name: f_name,
@@ -25,7 +25,7 @@ fn command_processor(
             wait: wat,
         } => {
             println!("!Download!");
-            
+
             let answ: Answer;
 
             if data.available.contains_key(f_name) == false {
@@ -42,12 +42,7 @@ fn command_processor(
                     let filename = f_name.clone();
                     let savepath = s_path.clone();
                     let file_thread = thread::spawn(move || {
-                        download_request(
-                            filename,
-                            savepath,
-                            available_list,
-                            downloading
-                        ).unwrap();
+                        download_request(filename, savepath, available_list, downloading).unwrap();
                     });
                     if *wat == true {
                         file_thread.join().unwrap();
@@ -57,18 +52,18 @@ fn command_processor(
             }
 
             let serialized = serde_json::to_string(&answ)?;
-            stream.write(serialized.as_bytes()).unwrap();
+            stream.write_all(serialized.as_bytes()).unwrap();
         }
         Command::Scan => {
             println!("!Scan!");
             let socket = UdpSocket::bind((Ipv4Addr::new(0, 0, 0, 0), 0))?;
             socket.send_to(SCAN_REQUEST, (ADDR_DAEMON_MULTICAST, PORT_MULTICAST))?;
-            data.available.clear();// clear list of available files to download
-            //the list gonna be refreshed in multicast_receiver
+            data.available.clear(); // clear list of available files to download
+                                    //the list gonna be refreshed in multicast_receiver
 
             let answ = Answer::Ok;
             let serialized = serde_json::to_string(&answ)?;
-            stream.write(serialized.as_bytes()).unwrap();
+            stream.write_all(serialized.as_bytes()).unwrap();
         }
         Command::Ls => {
             println!("!Ls!");
@@ -76,27 +71,26 @@ fn command_processor(
                 available_map: data.available.clone(),
             };
             let serialized = serde_json::to_string(&answ)?;
-            stream.write(serialized.as_bytes()).unwrap();
+            stream.write_all(serialized.as_bytes()).unwrap();
         }
         Command::Status => {
             println!("!Status!"); //transferring & shared
             let answ: Answer = Answer::Status {
                 transferring_map: transferring.lock().unwrap().clone(),
                 shared_map: data.shared.clone(),
-                downloading_map: downloading.lock().unwrap().clone()
+                downloading_map: downloading.lock().unwrap().clone(),
             };
             let serialized = serde_json::to_string(&answ)?;
-            stream.write(serialized.as_bytes()).unwrap();
+            stream.write_all(serialized.as_bytes()).unwrap();
         }
     }
-    
+
     println!("{:?}", data);
 
     Ok(())
 }
 
 fn multicast_responder(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
-
     let this_daemon_ip = get_this_daemon_ip().unwrap();
 
     let listener = bind_multicast(&ADDR_DAEMON_MULTICAST, PORT_MULTICAST)?;
@@ -121,7 +115,7 @@ fn multicast_responder(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
                     shared.push(key.clone());
                 }
                 let serialized = serde_json::to_string(&shared)?;
-                stream.write(serialized.as_bytes()).unwrap(); //Send our "shared"
+                stream.write_all(serialized.as_bytes()).unwrap(); //Send our "shared"
             }
         }
     }
@@ -141,7 +135,9 @@ fn multicast_receiver(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
                         for name in names.into_iter() {
                             if data.lock().unwrap().available.contains_key(&name) {
                                 //If file already exist just update Vec of IP
-                                data.lock().unwrap().available
+                                data.lock()
+                                    .unwrap()
+                                    .available
                                     .get_mut(&name)
                                     .unwrap()
                                     .push(stream.peer_addr().unwrap());
@@ -168,10 +164,10 @@ fn multicast_receiver(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
 
 fn share_responder(
     transferring: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>>,
-    data: Arc<Mutex<DataTemp>>
+    data: Arc<Mutex<DataTemp>>,
 ) -> io::Result<()> {
     let listener = TcpListener::bind((Ipv4Addr::new(0, 0, 0, 0), PORT_FILE_SHARE))?;
-    
+
     for stream in listener.incoming() {
         match stream {
             Ok(mut _stream) => {
@@ -193,9 +189,8 @@ fn share_responder(
 fn share_to_peer(
     mut stream: TcpStream,
     transferring: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>>,
-    shared: HashMap<String, PathBuf>
+    shared: HashMap<String, PathBuf>,
 ) -> io::Result<()> {
-
     let mut buf = vec![0; 4096];
 
     stream.set_read_timeout(Some(Duration::new(45, 0)))?;
@@ -215,13 +210,14 @@ fn share_to_peer(
                     if shared.contains_key(&asked_filename) == false {
                         answ = AnswerToFirstRequest {
                             filename: asked_filename.clone(),
-                            answer: EnumAnswer::NotExist
+                            answer: EnumAnswer::NotExist,
                         };
                     } else {
-                        let size_of_file: u64 = std::fs::metadata(shared.get(&asked_filename).unwrap())?.len();//get file size
+                        let size_of_file: u64 =
+                            std::fs::metadata(shared.get(&asked_filename).unwrap())?.len(); //get file size
                         answ = AnswerToFirstRequest {
                             filename: asked_filename.clone(),
-                            answer: EnumAnswer::Size(size_of_file)
+                            answer: EnumAnswer::Size(size_of_file),
                         };
                     }
                     let serialized = serde_json::to_string(&answ)?;
@@ -236,8 +232,8 @@ fn share_to_peer(
             }
         }
         Err(e) => {
-           eprintln!("An error occurred, {}", e);
-           return Err(e);
+            eprintln!("An error occurred, {}", e);
+            return Err(e);
         }
     }
 
@@ -278,7 +274,10 @@ fn share_to_peer(
             transfer_map.remove(&file_name).unwrap();
         } else {
             let peer_vec: &mut Vec<SocketAddr> = transfer_map.get_mut(&file_name).unwrap();
-            let pos: usize = peer_vec.iter().position(|&peer| peer == stream.peer_addr().unwrap()).unwrap();
+            let pos: usize = peer_vec
+                .iter()
+                .position(|&peer| peer == stream.peer_addr().unwrap())
+                .unwrap();
             peer_vec.remove(pos);
         }
     }
@@ -286,28 +285,24 @@ fn share_to_peer(
     Ok(())
 }
 
-
 fn download_request(
     file_name: String,
     file_path: PathBuf,
     available: HashMap<String, Vec<SocketAddr>>,
-    downloading: Arc<Mutex<Vec<String>>>
+    downloading: Arc<Mutex<Vec<String>>>,
 ) -> io::Result<()> {
-
     let mut buf = vec![0; 4096];
 
     let mut peers: Vec<(SocketAddr, u64)> = Vec::new();
 
     {
-        let request_to_get_size = serde_json::to_string(
-            &FirstRequest {
-                filename: file_name.clone(),
-                action: FileSizeorInfo::Size
-            }
-        )?;
-    
+        let request_to_get_size = serde_json::to_string(&FirstRequest {
+            filename: file_name.clone(),
+            action: FileSizeorInfo::Size,
+        })?;
+
         let mut refresh = true;
-    
+
         for peer in available.get(&file_name).unwrap().iter() {
             let mut stream: TcpStream;
             match TcpStream::connect((peer.ip(), PORT_FILE_SHARE)) {
@@ -315,7 +310,11 @@ fn download_request(
                     stream = _stream;
                 }
                 Err(e) => {
-                    eprintln!("Error while connecting to {} to download a file {}", peer.ip(), e);
+                    eprintln!(
+                        "Error while connecting to {} to download a file {}",
+                        peer.ip(),
+                        e
+                    );
                     continue;
                 }
             }
@@ -338,18 +337,21 @@ fn download_request(
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error {} while interracting with {:?}", e, stream.peer_addr());
+                    eprintln!(
+                        "Error {} while interracting with {:?}",
+                        e,
+                        stream.peer_addr()
+                    );
                 }
             }
         }
     }
 
-    
     let mut most_used_file_size: u64 = 1;
     let mut how_much_peers: u16 = 0;
     {
         let mut different_file_sizes: HashMap<u64, u16> = HashMap::new();
-    
+
         for (_peer, file_size) in peers.iter() {
             if different_file_sizes.contains_key(file_size) {
                 let count: &mut u16 = different_file_sizes.get_mut(file_size).unwrap();
@@ -358,7 +360,7 @@ fn download_request(
                 different_file_sizes.insert(*file_size, 1);
             }
         }
-    
+
         for (key, count) in different_file_sizes.iter() {
             if *count >= how_much_peers {
                 most_used_file_size = *key;
@@ -368,7 +370,10 @@ fn download_request(
     }
 
     for _ in 0..(peers.len() - how_much_peers as usize) {
-        let pos: usize = peers.iter().position(|(_peer, size)| *size != most_used_file_size).unwrap();
+        let pos: usize = peers
+            .iter()
+            .position(|(_peer, size)| *size != most_used_file_size)
+            .unwrap();
         peers.remove(pos);
     }
 
@@ -383,12 +388,10 @@ fn download_request(
     if peers.len() >= blocks as usize {
         let file_info = FirstRequest {
             filename: file_name.clone(),
-            action: FileSizeorInfo::Info(
-                FileInfo {
-                    from_block: 0,
-                    to_block: blocks + 1
-                }
-            )
+            action: FileSizeorInfo::Info(FileInfo {
+                from_block: 0,
+                to_block: blocks + 1,
+            }),
         };
         let fpath = file_path.clone();
         let down_clone = downloading.clone();
@@ -397,7 +400,7 @@ fn download_request(
         let _blocks = blocks;
 
         pool = ThreadPool::new(1);
-        pool.execute( move || {
+        pool.execute(move || {
             download_from_peer(
                 peers[0].0.clone(),
                 file_info,
@@ -405,10 +408,10 @@ fn download_request(
                 down_clone,
                 _fsize,
                 _blocks,
-                block_watcher
-            ).unwrap();
-            }
-        );
+                block_watcher,
+            )
+            .unwrap();
+        });
     } else {
         pool = ThreadPool::new(peers.len());
 
@@ -420,21 +423,19 @@ fn download_request(
             }
             let file_info = FirstRequest {
                 filename: file_name.clone(),
-                action: FileSizeorInfo::Info(
-                    FileInfo {
-                        from_block: fblock,
-                        to_block: lblock
-                    }
-                )
+                action: FileSizeorInfo::Info(FileInfo {
+                    from_block: fblock,
+                    to_block: lblock,
+                }),
             };
-            
+
             let fpath = file_path.clone();
             let down_clone = downloading.clone();
             let block_watcher = downloaded_blocks.clone();
             let _fsize = file_size;
             let _blocks = blocks;
             let pr = peers[i as usize].0.clone();
-            pool.execute( move || {
+            pool.execute(move || {
                 download_from_peer(
                     pr,
                     file_info,
@@ -442,10 +443,10 @@ fn download_request(
                     down_clone,
                     _fsize,
                     _blocks,
-                    block_watcher
-                ).unwrap();
-                }
-            );
+                    block_watcher,
+                )
+                .unwrap();
+            });
         }
     }
     pool.join();
@@ -459,7 +460,7 @@ fn download_from_peer(
     _downloading: Arc<Mutex<Vec<String>>>,
     file_size: u64,
     file_blocks: u32,
-    _block_watcher: Arc<Mutex<Vec<(u32, u32)>>>
+    _block_watcher: Arc<Mutex<Vec<(u32, u32)>>>,
 ) -> io::Result<()> {
     let mut stream = TcpStream::connect((peer.ip(), PORT_FILE_SHARE)).unwrap();
 
@@ -508,7 +509,8 @@ fn main() -> io::Result<()> {
     //All about files daemon knowledge
     let data: Arc<Mutex<DataTemp>> = Arc::new(Mutex::new(DataTemp::new()));
     //Channel for transfeering info about sharing to multicast_responder
-    let transferring: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>> = Arc::new(Mutex::new(HashMap::new()));
+    let transferring: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>> =
+        Arc::new(Mutex::new(HashMap::new()));
     let downloading: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 
     let mult_resp_data = data.clone();
@@ -552,9 +554,15 @@ fn main() -> io::Result<()> {
                         let com_transfer = transferring.clone();
                         let com_download = downloading.clone();
                         thread::spawn(move || {
-                            command_processor(&com, stream, dat.lock().unwrap(), com_transfer, com_download).unwrap();
+                            command_processor(
+                                &com,
+                                stream,
+                                dat.lock().unwrap(),
+                                com_transfer,
+                                com_download,
+                            )
+                            .unwrap();
                         });
-                        
                     }
                     Err(e) => {
                         eprintln!("An error occurred, {}", e);
@@ -569,4 +577,191 @@ fn main() -> io::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    // Note this useful idiom: importing names from outer (for mod tests) scope.
+    use super::*;
+
+    #[test]
+    fn test_share() {
+        let _listener = TcpListener::bind(("localhost", PORT_CLIENT_DAEMON + 1)).unwrap();
+        //
+        let mut stream = TcpStream::connect(("localhost", PORT_CLIENT_DAEMON + 1)).unwrap();
+        let com = Command::Share {
+            file_path: PathBuf::from("fake\\path\\FILE.dat"),
+        };
+        let stream_tmp = _listener.accept().unwrap().0;
+        let dat: Arc<Mutex<DataTemp>> = Arc::new(Mutex::new(DataTemp::new()));
+
+        let tr: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>> = Arc::new(Mutex::new(HashMap::new()));
+        let dow: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+
+        command_processor(&com, stream_tmp, dat.lock().unwrap(), tr, dow).unwrap();
+
+        let mut buf = vec![0 as u8; 4096];
+        match stream.read(&mut buf) {
+            Ok(size) => {
+                let answ: Answer = serde_json::from_slice(&buf[..size]).unwrap();
+                assert_eq!(answ, Answer::Ok);
+                //Checking dat after changes
+                assert_eq!(
+                    (dat.lock().unwrap())
+                        .shared
+                        .get(&String::from("FILE.dat"))
+                        .unwrap(),
+                    &PathBuf::from("fake\\path\\FILE.dat")
+                );
+            }
+            Err(_) => {
+                panic!("An error occurred, {}", stream.peer_addr().unwrap());
+            }
+        }
+    }
+
+    #[test]
+    fn test_download() {
+        let _listener = TcpListener::bind(("localhost", PORT_CLIENT_DAEMON + 2)).unwrap();
+        //
+        let mut stream = TcpStream::connect(("localhost", PORT_CLIENT_DAEMON + 2)).unwrap();
+        let com = Command::Download {
+            file_name: String::from("FILE.dat"),
+            save_path: PathBuf::from("fake\\path\\"),
+            wait: false,
+        };
+        let stream_tmp = _listener.accept().unwrap().0;
+        let dat: Arc<Mutex<DataTemp>> = Arc::new(Mutex::new(DataTemp::new()));
+
+        let tr: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>> = Arc::new(Mutex::new(HashMap::new()));
+        let dow: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+
+        command_processor(&com, stream_tmp, dat.lock().unwrap(), tr, dow).unwrap();
+
+        let mut buf = vec![0 as u8; 4096];
+        match stream.read(&mut buf) {
+            Ok(size) => {
+                let answ: Answer = serde_json::from_slice(&buf[..size]).unwrap();
+                assert_eq!(
+                    answ,
+                    Answer::Err(String::from("File is not available to download!"))
+                );
+            }
+            Err(e) => panic!("An error occurred, {}", e),
+        }
+    }
+
+    #[test]
+    fn test_scan() {
+        let _listener = TcpListener::bind(("localhost", PORT_CLIENT_DAEMON + 3)).unwrap();
+        //
+        let mut stream = TcpStream::connect(("localhost", PORT_CLIENT_DAEMON + 3)).unwrap();
+        let com = Command::Scan;
+        let stream_tmp = _listener.accept().unwrap().0;
+        let dat: Arc<Mutex<DataTemp>> = Arc::new(Mutex::new(DataTemp::new()));
+
+        let tr: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>> = Arc::new(Mutex::new(HashMap::new()));
+        let dow: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+
+        command_processor(&com, stream_tmp, dat.lock().unwrap(), tr, dow).unwrap();
+
+        let mut buf = vec![0 as u8; 4096];
+        match stream.read(&mut buf) {
+            Ok(size) => {
+                let answ: Answer = serde_json::from_slice(&buf[..size]).unwrap();
+                assert_eq!(answ, Answer::Ok);
+            }
+            Err(_) => {
+                panic!("An error occurred, {}", stream.peer_addr().unwrap());
+            }
+        }
+    }
+
+    #[test]
+    fn test_ls() {
+        let _listener = TcpListener::bind(("localhost", PORT_CLIENT_DAEMON + 4)).unwrap();
+        //
+        let mut stream = TcpStream::connect(("localhost", PORT_CLIENT_DAEMON + 4)).unwrap();
+        let com = Command::Ls;
+        let stream_tmp = _listener.accept().unwrap().0;
+        let dat: Arc<Mutex<DataTemp>> = Arc::new(Mutex::new(DataTemp::new()));
+
+        dat.lock()
+            .unwrap()
+            .available
+            .insert(String::from("FILE.dat"), Vec::new());
+
+        let tr: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>> = Arc::new(Mutex::new(HashMap::new()));
+        let dow: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+
+        command_processor(&com, stream_tmp, dat.lock().unwrap(), tr, dow).unwrap();
+
+        let mut buf = vec![0 as u8; 4096];
+        match stream.read(&mut buf) {
+            Ok(size) => {
+                let answ: Answer = serde_json::from_slice(&buf[..size]).unwrap();
+                //
+                let mut t: HashMap<String, Vec<SocketAddr>> = HashMap::new();
+                t.insert(String::from("FILE.dat"), Vec::new());
+
+                let tmp: Answer = Answer::Ls { available_map: t };
+                assert_eq!(answ, tmp);
+            }
+            Err(_) => {
+                panic!("An error occurred, {}", stream.peer_addr().unwrap());
+            }
+        }
+    }
+
+    #[test]
+    fn test_status() {
+        let _listener = TcpListener::bind(("localhost", PORT_CLIENT_DAEMON + 5)).unwrap();
+        //
+        let mut stream = TcpStream::connect(("localhost", PORT_CLIENT_DAEMON + 5)).unwrap();
+        let com = Command::Status;
+        let stream_tmp = _listener.accept().unwrap().0;
+        let dat: Arc<Mutex<DataTemp>> = Arc::new(Mutex::new(DataTemp::new()));
+
+        dat.lock().unwrap().shared.insert(
+            String::from("FILE1.dat"),
+            PathBuf::from("fake\\path\\FILE1.dat"),
+        );
+
+        let tr: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>> = Arc::new(Mutex::new(HashMap::new()));
+        tr.lock()
+            .unwrap()
+            .insert(String::from("FILE.dat"), Vec::new());
+
+        let dow: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+
+        command_processor(&com, stream_tmp, dat.lock().unwrap(), tr, dow).unwrap();
+
+        let mut buf = vec![0 as u8; 4096];
+        match stream.read(&mut buf) {
+            Ok(size) => {
+                let answ: Answer = serde_json::from_slice(&buf[..size]).unwrap();
+                //
+                let mut tr: HashMap<String, Vec<SocketAddr>> = HashMap::new();
+                tr.insert(String::from("FILE.dat"), Vec::new());
+
+                let mut sh: HashMap<String, PathBuf> = HashMap::new();
+                sh.insert(
+                    String::from("FILE1.dat"),
+                    PathBuf::from("fake\\path\\FILE1.dat"),
+                );
+
+                let dow_t: Vec<String> = Vec::new();
+
+                let tmp: Answer = Answer::Status {
+                    transferring_map: tr,
+                    shared_map: sh,
+                    downloading_map: dow_t,
+                };
+                assert_eq!(answ, tmp);
+            }
+            Err(_) => {
+                panic!("An error occurred, {}", stream.peer_addr().unwrap());
+            }
+        }
+    }
 }
