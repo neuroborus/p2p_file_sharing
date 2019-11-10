@@ -186,6 +186,38 @@ fn share_responder(
     Ok(())
 }
 
+fn handle_first_share_request(
+    shared: HashMap<String, PathBuf>,
+    request: FirstRequest,
+    mut stream: TcpStream
+) -> Option<(FileInfo, String, u64, TcpStream)> {
+    let asked_filename: String = request.filename;
+    match request.action {
+        FileSizeorInfo::Size => {
+            let answ: AnswerToFirstRequest;
+            if shared.contains_key(&asked_filename) == false {
+                answ = AnswerToFirstRequest {
+                    filename: asked_filename.clone(),
+                    answer: EnumAnswer::NotExist,
+                };
+            } else {
+                let size_of_file: u64 =
+                    std::fs::metadata(shared.get(&asked_filename).unwrap()).unwrap().len(); //get file size
+                answ = AnswerToFirstRequest {
+                    filename: asked_filename.clone(),
+                    answer: EnumAnswer::Size(size_of_file),
+                };
+            }
+            let serialized = serde_json::to_string(&answ).unwrap();
+            stream.write_all(serialized.as_bytes()).unwrap();
+            return None;
+        }
+        FileSizeorInfo::Info(info) => {
+            return Some((info, asked_filename.clone(), std::fs::metadata(shared.get(&asked_filename).unwrap()).unwrap().len(), stream));
+        }
+    }
+}
+
 fn share_to_peer(
     mut stream: TcpStream,
     transferring: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>>,
@@ -196,39 +228,21 @@ fn share_to_peer(
     stream.set_read_timeout(Some(Duration::new(45, 0)))?;
     stream.set_write_timeout(Some(Duration::new(45, 0)))?;
 
-    let file_name: String;
     let file_info: FileInfo;
+    let file_name: String;
     let file_size: u64;
 
     match stream.read(&mut buf) {
         Ok(size) => {
             let request: FirstRequest = serde_json::from_slice(&buf[..size])?;
-            let asked_filename: String = request.filename;
-            match request.action {
-                FileSizeorInfo::Size => {
-                    let answ: AnswerToFirstRequest;
-                    if shared.contains_key(&asked_filename) == false {
-                        answ = AnswerToFirstRequest {
-                            filename: asked_filename.clone(),
-                            answer: EnumAnswer::NotExist,
-                        };
-                    } else {
-                        let size_of_file: u64 =
-                            std::fs::metadata(shared.get(&asked_filename).unwrap())?.len(); //get file size
-                        answ = AnswerToFirstRequest {
-                            filename: asked_filename.clone(),
-                            answer: EnumAnswer::Size(size_of_file),
-                        };
-                    }
-                    let serialized = serde_json::to_string(&answ)?;
-                    stream.write_all(serialized.as_bytes()).unwrap();
-                    return Ok(());
-                }
-                FileSizeorInfo::Info(info) => {
+            match handle_first_share_request(shared, request, stream) {
+                Some((info, name, size, s)) => {
                     file_info = info;
-                    file_name = asked_filename.clone();
-                    file_size = std::fs::metadata(shared.get(&asked_filename).unwrap())?.len();
+                    file_name = name;
+                    file_size = size;
+                    stream = s; 
                 }
+                None => { return Ok(()); }
             }
         }
         Err(e) => {
