@@ -189,7 +189,7 @@ fn share_responder(
 fn handle_first_share_request(
     shared: HashMap<String, PathBuf>,
     request: FirstRequest,
-    mut stream: TcpStream
+    mut stream: TcpStream,
 ) -> Option<(FileInfo, String, u64, TcpStream)> {
     let asked_filename: String = request.filename;
     match request.action {
@@ -201,8 +201,9 @@ fn handle_first_share_request(
                     answer: EnumAnswer::NotExist,
                 };
             } else {
-                let size_of_file: u64 =
-                    std::fs::metadata(shared.get(&asked_filename).unwrap()).unwrap().len(); //get file size
+                let size_of_file: u64 = std::fs::metadata(shared.get(&asked_filename).unwrap())
+                    .unwrap()
+                    .len(); //get file size
                 answ = AnswerToFirstRequest {
                     filename: asked_filename.clone(),
                     answer: EnumAnswer::Size(size_of_file),
@@ -213,7 +214,14 @@ fn handle_first_share_request(
             return None;
         }
         FileSizeorInfo::Info(info) => {
-            return Some((info, asked_filename.clone(), std::fs::metadata(shared.get(&asked_filename).unwrap()).unwrap().len(), stream));
+            return Some((
+                info,
+                asked_filename.clone(),
+                std::fs::metadata(shared.get(&asked_filename).unwrap())
+                    .unwrap()
+                    .len(),
+                stream,
+            ));
         }
     }
 }
@@ -240,9 +248,11 @@ fn share_to_peer(
                     file_info = info;
                     file_name = name;
                     file_size = size;
-                    stream = s; 
+                    stream = s;
                 }
-                None => { return Ok(()); }
+                None => {
+                    return Ok(());
+                }
             }
         }
         Err(e) => {
@@ -292,7 +302,11 @@ fn get_fsize_on_each_peer(
                 stream = _stream;
             }
             Err(e) => {
-                eprintln!("Error while connecting to {} to download a file {}", peer.ip(), e);
+                eprintln!(
+                    "Error while connecting to {} to download a file {}",
+                    peer.ip(),
+                    e
+                );
                 continue;
             }
         }
@@ -326,10 +340,12 @@ fn get_fsize_on_each_peer(
     Ok(peers)
 }
 
-fn remove_other_fsizes_in_vec(mut peers: Vec<(SocketAddr, u64)>) -> io::Result<Vec<(SocketAddr, u64)>> {
+fn remove_other_fsizes_in_vec(
+    mut peers: Vec<(SocketAddr, u64)>,
+) -> io::Result<Vec<(SocketAddr, u64)>> {
     let mut _max_peers: u16 = 1;
     let mut fsize_count: Vec<(u64, u16)> = Vec::new();
-    peers.iter().for_each( |(_, fsize)| {
+    peers.iter().for_each(|(_, fsize)| {
         let buffer_var = fsize_count.iter_mut().find(|(size, _)| *size == *fsize);
         if buffer_var == Option::None {
             fsize_count.push((*fsize, 1));
@@ -337,7 +353,9 @@ fn remove_other_fsizes_in_vec(mut peers: Vec<(SocketAddr, u64)>) -> io::Result<V
             buffer_var.unwrap().1 += 1;
         }
     });
+
     let file_size = fsize_count.iter().max_by(|(_, fcount), (_, scount)| fcount.cmp(scount)).unwrap().0;
+
     peers.retain(|(_, size)| *size == file_size); // removes peers with other file size
     Ok(peers)
 }
@@ -377,7 +395,6 @@ fn download_request(
     available: Vec<SocketAddr>,
     downloading: Arc<Mutex<Vec<String>>>,
 ) -> io::Result<()> {
-    
     let peers = get_fsize_on_each_peer(available, file_name.clone()).unwrap();
     let mut peers = remove_other_fsizes_in_vec(peers).unwrap();
 
@@ -392,7 +409,7 @@ fn download_request(
     let pool: ThreadPool;
 
     let blocks_watcher: Arc<Mutex<HashMap<(u32, u32), bool>>> = fill_block_watcher(blocks, peers_count).unwrap();
-
+  
     pool = ThreadPool::new(blocks_watcher.lock().unwrap().len());
 
     let mut interrupted = false;
@@ -442,6 +459,7 @@ fn download_request(
         fs::remove_file(&file_name)?;
         eprintln!("Failed to download a {}", file_name);
     }
+
     Ok(())
 }
 
@@ -571,9 +589,52 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    // Note this useful idiom: importing names from outer (for mod tests) scope.
+#[cfg(test)] //Unit-tests
+mod unit_tests {
+    use super::*;
+
+    #[test]
+    fn test_get_fsize_on_each_peer() {
+        let v: Vec<SocketAddr> = Vec::new();
+        let name: String = String::from("Name");
+
+        match get_fsize_on_each_peer(v, name) {
+            Ok(o) => println!("{:?}", o),
+            Err(e) => panic!("{:?}", e),
+        }
+    }
+
+    #[test]
+    fn test_get_fsize_on_each_peer_contain() {
+        let mut v: Vec<SocketAddr> = Vec::new();
+        v.push(SocketAddr::new(
+            IpAddr::from(Ipv4Addr::new(224, 0, 0, 123)),
+            1222,
+        ));
+        let name: String = String::from("Name");
+
+        match get_fsize_on_each_peer(v, name) {
+            Ok(o) => println!("{:?}", o),
+            Err(e) => panic!("{:?}", e),
+        }
+    }
+
+    #[test]
+    fn test_remove_other_fsizes_in_vec_contain() {
+        let mut v: Vec<(SocketAddr, u64)> = Vec::new();
+        let sa: SocketAddr = SocketAddr::new(IpAddr::from(Ipv4Addr::new(224, 0, 0, 123)), 1222);
+
+        v.push((sa, 64));
+
+        match remove_other_fsizes_in_vec(v) {
+            Ok(o) => println!("{:?}", o),
+            Err(e) => panic!("{:?}", e),
+        }
+    }
+}
+
+#[cfg(test)] //Functional tests
+mod func_tests {
     use super::*;
 
     #[test]
