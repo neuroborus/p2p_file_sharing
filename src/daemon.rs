@@ -252,20 +252,7 @@ fn share_to_peer(
     }
 
     let blocks: u32;
-
-    {
-        let mut transfer_map = transferring.lock().unwrap();
-        match transfer_map.get_mut(&file_name) {
-            Some(addr_vec) => {
-                addr_vec.push(stream.peer_addr().unwrap().clone());
-            }
-            None => {
-                let mut v: Vec<SocketAddr> = Vec::new();
-                v.push(stream.peer_addr().unwrap());
-                transfer_map.insert(file_name.clone(), v);
-            }
-        }
-    }
+    let _transfer_guard = TransferGuard::new(transferring.clone(), file_name.clone(), stream.peer_addr().unwrap());
 
     blocks = (file_size / 4096) as u32;
     let last_block_size = (file_size % 4096) as usize;
@@ -281,19 +268,6 @@ fn share_to_peer(
         }
         file.read_exact(&mut buf)?;
         stream.write_all(&buf).unwrap();
-    }
-    {
-        let mut transfer_map = transferring.lock().unwrap();
-        if transfer_map.get(&file_name).unwrap().len() == 1 {
-            transfer_map.remove(&file_name).unwrap();
-        } else {
-            let peer_vec: &mut Vec<SocketAddr> = transfer_map.get_mut(&file_name).unwrap();
-            let pos: usize = peer_vec
-                .iter()
-                .position(|&peer| peer == stream.peer_addr().unwrap())
-                .unwrap();
-            peer_vec.remove(pos);
-        }
     }
 
     Ok(())
