@@ -299,7 +299,10 @@ fn share_to_peer(
     Ok(())
 }
 
-fn get_fsize_on_each_peer(peer_list: Vec<SocketAddr>, file_name: String) -> io::Result<Vec<(SocketAddr, u64)>> {
+fn get_fsize_on_each_peer(
+    peer_list: Vec<SocketAddr>,
+    file_name: String
+) -> io::Result<Vec<(SocketAddr, u64)>> {
     let mut buf = vec![0; 4096];
     let mut peers: Vec<(SocketAddr, u64)> = Vec::new();
     let request_to_get_size = serde_json::to_string(&FirstRequest {
@@ -365,28 +368,11 @@ fn remove_other_fsizes_in_vec(mut peers: Vec<(SocketAddr, u64)>) -> io::Result<V
     Ok(peers)
 }
 
-fn download_request(
-    file_name: String,
-    file_path: PathBuf,
-    available: Vec<SocketAddr>,
-    downloading: Arc<Mutex<Vec<String>>>,
-) -> io::Result<()> {
-    
-    let peers = get_fsize_on_each_peer(available, file_name.clone()).unwrap();
-    let mut peers = remove_other_fsizes_in_vec(peers).unwrap();
-
-    let file_size = peers.get(0).unwrap().1;
-    let peers_count = peers.len() as u32;
-
-    let blocks = (file_size / 4096) as u32;
-    let file_size: u64 = file_size;
-
-    downloading.lock().unwrap().push(file_name.clone());
-
-    let pool: ThreadPool;
-
-    let blocks_watcher: Arc<Mutex<HashMap<(u32, u32), bool>>> = Arc::new(Mutex::new(HashMap::new()));
-
+fn fill_block_watcher(
+    blocks: u32,
+    peers_count: u32
+) -> io::Result<Arc<Mutex<HashMap<(u32, u32), bool>>>> {
+    let blocks_watcher = Arc::new(Mutex::new(HashMap::new()));
     if blocks < peers_count {
         let mut b_watch = blocks_watcher.lock().unwrap();
         for i in 0..blocks {
@@ -408,7 +394,30 @@ fn download_request(
             b_watch.insert((fblock, lblock), false);
         }
     }
+    Ok(blocks_watcher)
+}
 
+fn download_request(
+    file_name: String,
+    file_path: PathBuf,
+    available: Vec<SocketAddr>,
+    downloading: Arc<Mutex<Vec<String>>>,
+) -> io::Result<()> {
+    
+    let peers = get_fsize_on_each_peer(available, file_name.clone()).unwrap();
+    let mut peers = remove_other_fsizes_in_vec(peers).unwrap();
+
+    let file_size = peers.get(0).unwrap().1;
+    let peers_count = peers.len() as u32;
+
+    let blocks = (file_size / 4096) as u32;
+    let file_size: u64 = file_size;
+
+    downloading.lock().unwrap().push(file_name.clone());
+
+    let pool: ThreadPool;
+
+    let blocks_watcher: Arc<Mutex<HashMap<(u32, u32), bool>>> = fill_block_watcher(blocks, peers_count).unwrap();
 
     pool = ThreadPool::new(blocks_watcher.lock().unwrap().len());
 
@@ -434,7 +443,6 @@ fn download_request(
                 let fpath = file_path.clone();
                 let block_watcher = blocks_watcher.clone();
                 let _fsize = file_size;
-                let _blocks = blocks;
                 let peer = peers[i].0.clone();
                 pool.execute(move || {
                     let _buf = download_from_peer(
@@ -442,7 +450,6 @@ fn download_request(
                         file_info,
                         fpath,
                         _fsize,
-                        _blocks,
                         block_watcher,
                     );
                 });
@@ -469,12 +476,12 @@ fn download_from_peer(
     file_info: FirstRequest,
     _file_path: PathBuf,
     file_size: u64,
-    file_blocks: u32,
     block_watcher: Arc<Mutex<HashMap<(u32, u32), bool>>>,
 ) -> io::Result<()> {
     let mut stream = TcpStream::connect((peer.ip(), PORT_FILE_SHARE)).unwrap();
 
     let mut buf = vec![0u8; 4096];
+    let file_blocks = (file_size / 4096) as u32;
 
     stream.set_read_timeout(Some(Duration::new(45, 0)))?;
     stream.set_write_timeout(Some(Duration::new(45, 0)))?;
