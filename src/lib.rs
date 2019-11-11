@@ -71,23 +71,6 @@ pub fn get_this_daemon_ip() -> io::Result<IpAddr> {
     Ok(self_ip)
 }
 
-pub fn port_is_available(port: u16) -> bool {
-    match TcpListener::bind(("127.0.0.1", port)) {
-        Ok(_) => true,
-        Err(_) => false,
-    }
-}
-
-pub fn get_available_port() -> Option<u16> {
-    let mut rng = rand::thread_rng();
-    loop {
-        let port = rng.gen_range(60000, 60200);
-        if port_is_available(port) {
-            return Some(port);
-        }
-    }
-}
-
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Command {
     //Client -> Daemon
