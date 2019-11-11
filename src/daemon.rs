@@ -337,7 +337,7 @@ fn remove_other_fsizes_in_vec(mut peers: Vec<(SocketAddr, u64)>) -> io::Result<V
             buffer_var.unwrap().1 += 1;
         }
     });
-    let file_size = fsize_count.iter().find(|(_, count)| _max_peers == *count).unwrap().0;
+    let file_size = fsize_count.iter().max_by(|(_, fcount), (_, scount)| fcount.cmp(scount)).unwrap().0;
     peers.retain(|(_, size)| *size == file_size); // removes peers with other file size
     Ok(peers)
 }
