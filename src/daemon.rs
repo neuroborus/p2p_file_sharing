@@ -262,20 +262,7 @@ fn share_to_peer(
     }
 
     let blocks: u32;
-
-    {
-        let mut transfer_map = transferring.lock().unwrap();
-        match transfer_map.get_mut(&file_name) {
-            Some(addr_vec) => {
-                addr_vec.push(stream.peer_addr().unwrap().clone());
-            }
-            None => {
-                let mut v: Vec<SocketAddr> = Vec::new();
-                v.push(stream.peer_addr().unwrap());
-                transfer_map.insert(file_name.clone(), v);
-            }
-        }
-    }
+    let _transfer_guard = TransferGuard::new(transferring.clone(), file_name.clone(), stream.peer_addr().unwrap());
 
     blocks = (file_size / 4096) as u32;
     let last_block_size = (file_size % 4096) as usize;
@@ -292,26 +279,13 @@ fn share_to_peer(
         file.read_exact(&mut buf)?;
         stream.write_all(&buf).unwrap();
     }
-    {
-        let mut transfer_map = transferring.lock().unwrap();
-        if transfer_map.get(&file_name).unwrap().len() == 1 {
-            transfer_map.remove(&file_name).unwrap();
-        } else {
-            let peer_vec: &mut Vec<SocketAddr> = transfer_map.get_mut(&file_name).unwrap();
-            let pos: usize = peer_vec
-                .iter()
-                .position(|&peer| peer == stream.peer_addr().unwrap())
-                .unwrap();
-            peer_vec.remove(pos);
-        }
-    }
 
     Ok(())
 }
 
 fn get_fsize_on_each_peer(
     peer_list: Vec<SocketAddr>,
-    file_name: String,
+    file_name: String
 ) -> io::Result<Vec<(SocketAddr, u64)>> {
     let mut buf = vec![0; 4096];
     let mut peers: Vec<(SocketAddr, u64)> = Vec::new();
@@ -379,13 +353,40 @@ fn remove_other_fsizes_in_vec(
             buffer_var.unwrap().1 += 1;
         }
     });
-    let file_size = fsize_count
-        .iter()
-        .find(|(_, count)| _max_peers == *count)
-        .unwrap()
-        .0;
+
+    let file_size = fsize_count.iter().max_by(|(_, fcount), (_, scount)| fcount.cmp(scount)).unwrap().0;
+
     peers.retain(|(_, size)| *size == file_size); // removes peers with other file size
     Ok(peers)
+}
+
+fn fill_block_watcher(
+    blocks: u32,
+    peers_count: u32
+) -> io::Result<Arc<Mutex<HashMap<(u32, u32), bool>>>> {
+    let blocks_watcher = Arc::new(Mutex::new(HashMap::new()));
+    if blocks < peers_count {
+        let mut b_watch = blocks_watcher.lock().unwrap();
+        for i in 0..blocks {
+            if i == blocks-1 {
+                b_watch.insert((i, i+2), false);
+            } else {
+                b_watch.insert((i, i+1), false);
+            }
+        }
+    } else {
+        let blocks_per_peer = blocks / peers_count;
+        let mut b_watch = blocks_watcher.lock().unwrap();
+        for i in 0..peers_count {
+            let fblock = i * blocks_per_peer;
+            let mut lblock = (i + 1) * blocks_per_peer;
+            if i == peers_count - 1 {
+                lblock = blocks + 1;
+            }
+            b_watch.insert((fblock, lblock), false);
+        }
+    }
+    Ok(blocks_watcher)
 }
 
 fn download_request(
@@ -395,78 +396,70 @@ fn download_request(
     downloading: Arc<Mutex<Vec<String>>>,
 ) -> io::Result<()> {
     let peers = get_fsize_on_each_peer(available, file_name.clone()).unwrap();
-    let peers = remove_other_fsizes_in_vec(peers).unwrap();
+    let mut peers = remove_other_fsizes_in_vec(peers).unwrap();
 
     let file_size = peers.get(0).unwrap().1;
-    let peers_count = peers.len();
+    let peers_count = peers.len() as u32;
 
     let blocks = (file_size / 4096) as u32;
     let file_size: u64 = file_size;
-    let blocks_per_peer = blocks / (peers_count as u32);
 
     downloading.lock().unwrap().push(file_name.clone());
 
     let pool: ThreadPool;
 
-    let downloaded_blocks: Arc<Mutex<Vec<(u32, u32)>>> = Arc::new(Mutex::new(Vec::new()));
+    let blocks_watcher: Arc<Mutex<HashMap<(u32, u32), bool>>> = fill_block_watcher(blocks, peers_count).unwrap();
+  
+    pool = ThreadPool::new(blocks_watcher.lock().unwrap().len());
 
-    if (blocks as usize) < peers.len() {
-        let file_info = FirstRequest {
-            filename: file_name.clone(),
-            action: FileSizeorInfo::Info(FileInfo {
-                from_block: 0,
-                to_block: blocks + 1,
-            }),
-        };
-        let fpath = file_path.clone();
-        let block_watcher = downloaded_blocks.clone();
-        let _fsize = file_size;
-        let _blocks = blocks;
+    let mut interrupted = false;
 
-        pool = ThreadPool::new(1);
-        pool.execute(move || {
-            download_from_peer(
-                peers[0].0.clone(),
-                file_info,
-                fpath,
-                _fsize,
-                _blocks,
-                block_watcher,
-            )
-            .unwrap();
-        });
-    } else {
-        pool = ThreadPool::new(peers.len());
-
-        for i in 0..(peers.len() as u32) {
-            let fblock = i * blocks_per_peer;
-            let mut lblock = (i + 1) * blocks_per_peer;
-            if i == (peers_count as u32) - 1 && lblock != blocks + 1 {
-                lblock = blocks + 1;
+    while blocks_watcher.lock().unwrap().values().any( |done| *done == false) && peers.len() > 0 {
+        let block_lines = blocks_watcher.lock().unwrap().clone();
+        let mut i = 0;
+        let mut del_i: usize = 0;
+        for ((fblock, lblock), done) in block_lines {
+            if done == false {
+                if interrupted {
+                    peers.remove(del_i);
+                    if peers.len() == 0 { break; }
+                }
+                let file_info = FirstRequest {
+                    filename: file_name.clone(),
+                    action: FileSizeorInfo::Info(FileInfo {
+                        from_block: fblock,
+                        to_block: lblock,
+                    })
+                };
+                let fpath = file_path.clone();
+                let block_watcher = blocks_watcher.clone();
+                let _fsize = file_size;
+                let peer = peers[i].0.clone();
+                pool.execute(move || {
+                    let _buf = download_from_peer(
+                        peer,
+                        file_info,
+                        fpath,
+                        _fsize,
+                        block_watcher,
+                    );
+                });
+                i += 1;
             }
-            let file_info = FirstRequest {
-                filename: file_name.clone(),
-                action: FileSizeorInfo::Info(FileInfo {
-                    from_block: fblock,
-                    to_block: lblock,
-                }),
-            };
-
-            let fpath = file_path.clone();
-            let block_watcher = downloaded_blocks.clone();
-            let _fsize = file_size;
-            let _blocks = blocks;
-            let pr = peers[i as usize].0.clone();
-            pool.execute(move || {
-                download_from_peer(pr, file_info, fpath, _fsize, _blocks, block_watcher).unwrap();
-            });
+            del_i += 1;
+        }
+        pool.join();
+        if blocks_watcher.lock().unwrap().values().any( |done| *done == false) {
+            eprintln!("The connection was interrupted while downloading a {}", &file_name);
+            interrupted = true;
         }
     }
-    pool.join();
-    downloading
-        .lock()
-        .unwrap()
-        .retain(|line| *line != file_name);
+    downloading.lock().unwrap().retain(|line| *line != file_name);
+    if blocks_watcher.lock().unwrap().values().any( |done| *done == false) {
+        fs::remove_file(&file_name)?;
+        eprintln!("Failed to download a {}", file_name);
+    }
+
     Ok(())
 }
 
@@ -475,12 +468,12 @@ fn download_from_peer(
     file_info: FirstRequest,
     _file_path: PathBuf,
     file_size: u64,
-    file_blocks: u32,
-    _block_watcher: Arc<Mutex<Vec<(u32, u32)>>>,
+    block_watcher: Arc<Mutex<HashMap<(u32, u32), bool>>>,
 ) -> io::Result<()> {
     let mut stream = TcpStream::connect((peer.ip(), PORT_FILE_SHARE)).unwrap();
 
     let mut buf = vec![0u8; 4096];
+    let file_blocks = (file_size / 4096) as u32;
 
     stream.set_read_timeout(Some(Duration::new(45, 0)))?;
     stream.set_write_timeout(Some(Duration::new(45, 0)))?;
@@ -515,6 +508,7 @@ fn download_from_peer(
         stream.read_exact(&mut buf).unwrap();
         file.write_all(&buf)?;
     }
+    *block_watcher.lock().unwrap().get_mut(&(fblock, lblock)).unwrap() = true;
     Ok(())
 }
 

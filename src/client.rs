@@ -111,7 +111,42 @@ fn main() -> io::Result<()> {
         match stream.read(&mut buf) {
             Ok(size) => {
                 let answ: Answer = serde_json::from_slice(&buf[..size])?;
-                println!("{:?}", answ);
+                //println!("{:?}", answ);
+                match answ {
+                    Answer::Ls { available_map: map } => {
+                        println!("Files available to download:");
+                        for file in map.keys() {
+                            println!("\t{}", file);
+                        }
+                    }
+                    Answer::Status {
+                        transferring_map: t_map,
+                        shared_map: s_map,
+                        downloading_map: d_map
+                    } => {
+                        println!("Sharing:");
+                        for file in s_map.keys() {
+                            println!("\t{}", file);
+                            let f_vec = t_map.get(file);
+                            match f_vec {
+                                Some(vec) => {
+                                    for peer in vec.iter() {
+                                        println!("\t\t{}", peer.ip());
+                                    }
+                                }
+                                None => ()
+                            }
+                        }
+                        println!("Downloading:");
+                        for file in d_map {
+                            println!("\t{}", file);
+                        }
+                    }
+                    Answer::Err(e) => {
+                        println!("{}", e);
+                    }
+                    _ => ()
+                }
             }
             Err(_) => {
                 eprintln!("An error occurred, {}", stream.peer_addr().unwrap());
