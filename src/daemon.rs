@@ -42,7 +42,12 @@ fn command_processor(
                     let filename = f_name.clone();
                     let savepath = s_path.clone();
                     let file_thread = thread::spawn(move || {
-                        download_request(filename, savepath, available_list, downloading).unwrap();
+                        match download_request(filename.clone(), savepath, available_list, downloading) {
+                            Ok(_) => (),
+                            Err(e) => {
+                                eprintln!("Failed to download a {}, an error occured {}", filename, e);
+                            }
+                        }
                     });
                     if *wat == true {
                         file_thread.join().unwrap();
@@ -84,8 +89,6 @@ fn command_processor(
             stream.write_all(serialized.as_bytes()).unwrap();
         }
     }
-
-    println!("{:?}", data);
 
     Ok(())
 }
@@ -173,9 +176,14 @@ fn share_responder(
             Ok(mut _stream) => {
                 let peer_transferring = transferring.clone();
                 let shared = data.lock().unwrap().shared.clone();
-                println!("{:?} asked to share a file", _stream.peer_addr());
                 thread::spawn(move || {
-                    share_to_peer(_stream, peer_transferring, shared).unwrap();
+                    let peer = _stream.peer_addr().unwrap().ip();
+                    match share_to_peer(_stream, peer_transferring, shared) {
+                        Ok(_) => (),
+                        Err(e) => {
+                            eprintln!("Interrupted sharing to {}, an error occured {}", peer, e);
+                        }
+                    }
                 });
             }
             Err(e) => {
@@ -200,6 +208,7 @@ fn handle_first_share_request(
                     filename: asked_filename.clone(),
                     answer: EnumAnswer::NotExist,
                 };
+                println!("{} asked not existing file", stream.peer_addr().unwrap().ip());
             } else {
                 let size_of_file: u64 = std::fs::metadata(shared.get(&asked_filename).unwrap())
                     .unwrap()
@@ -208,12 +217,14 @@ fn handle_first_share_request(
                     filename: asked_filename.clone(),
                     answer: EnumAnswer::Size(size_of_file),
                 };
+                println!("{} asked size of {}", stream.peer_addr().unwrap().ip(), &asked_filename);
             }
             let serialized = serde_json::to_string(&answ).unwrap();
             stream.write_all(serialized.as_bytes()).unwrap();
             return None;
         }
         FileSizeorInfo::Info(info) => {
+            println!("Starting sharing a {1} to {0}", stream.peer_addr().unwrap().ip(), &asked_filename);
             return Some((
                 info,
                 asked_filename.clone(),
@@ -436,21 +447,29 @@ fn download_request(
                 let _fsize = file_size;
                 let peer = peers[i].0.clone();
                 pool.execute(move || {
-                    let _buf = download_from_peer(
+                    let epeer = peer.clone();
+                    let efname = file_info.filename.clone();
+                    let res = download_from_peer(
                         peer,
                         file_info,
                         fpath,
                         _fsize,
                         block_watcher,
                     );
+                    match res {
+                        Ok(_) => (),
+                        Err(e) => {
+                            eprintln!("Downloading {} from {} was interrupted, an error occured {}", efname, epeer.ip(), e);
+                        }
+                    }
                 });
                 i += 1;
             }
             del_i += 1;
         }
         pool.join();
-        if blocks_watcher.lock().unwrap().values().any( |done| *done == false) {
-            eprintln!("The connection was interrupted while downloading a {}", &file_name);
+        if blocks_watcher.lock().unwrap().values().any( |done| *done == false) && interrupted == false {
+            // eprintln!("The connection was interrupted while downloading a {}", &file_name);
             interrupted = true;
         }
     }
@@ -559,7 +578,7 @@ fn main() -> io::Result<()> {
                             }
                         }
 
-                        println!("{:?}", *data);
+                        //println!("{:?}", *data);
                         let dat = data.clone();
                         let com_transfer = transferring.clone();
                         let com_download = downloading.clone();
