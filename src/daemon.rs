@@ -490,7 +490,7 @@ fn download_from_peer(
     file_size: u64,
     block_watcher: Arc<Mutex<HashMap<(u32, u32), bool>>>,
 ) -> io::Result<()> {
-    let mut stream = TcpStream::connect((peer.ip(), PORT_FILE_SHARE)).unwrap();
+    let mut stream = TcpStream::connect((peer.ip(), PORT_FILE_SHARE))?;
 
     let mut buf = vec![0u8; 4096];
     let file_blocks = (file_size / 4096) as u32;
@@ -498,8 +498,8 @@ fn download_from_peer(
     stream.set_read_timeout(Some(Duration::new(45, 0)))?;
     stream.set_write_timeout(Some(Duration::new(45, 0)))?;
 
-    let ser = serde_json::to_string(&file_info).unwrap();
-    stream.write_all(ser.as_bytes()).unwrap();
+    let ser = serde_json::to_string(&file_info)?;
+    stream.write_all(ser.as_bytes())?;
 
     let fblock: u32;
     let lblock: u32;
@@ -525,7 +525,7 @@ fn download_from_peer(
             }
             buf.resize(last_block_size, 0u8);
         }
-        stream.read_exact(&mut buf).unwrap();
+        stream.read_exact(&mut buf)?;
         file.write_all(&buf)?;
     }
     *block_watcher.lock().unwrap().get_mut(&(fblock, lblock)).unwrap() = true;
