@@ -10,7 +10,7 @@ fn command_processor(
 ) -> io::Result<()> {
     match com {
         Command::Share { file_path: f_path } => {
-            println!("!Share!");
+            //println!("!Share!");
 
             let name: String = String::from(f_path.file_name().unwrap().to_string_lossy());
             data.shared.insert(name, f_path.clone()); //Name - path
@@ -24,7 +24,7 @@ fn command_processor(
             save_path: s_path,
             wait: wat,
         } => {
-            println!("!Download!");
+            //println!("!Download!");
 
             let answ: Answer;
 
@@ -42,7 +42,13 @@ fn command_processor(
                     let filename = f_name.clone();
                     let savepath = s_path.clone();
                     let file_thread = thread::spawn(move || {
-                        download_request(filename, savepath, available_list, downloading).unwrap();
+                        match download_request(filename.clone(), savepath, available_list, downloading) {
+                            Ok(_) => (),
+                            Err(e) => {
+                                eprintln!("Failed to download a {}, an error occured {}", filename, e);
+                            }
+                        }
+                        ()
                     });
                     if *wat == true {
                         file_thread.join().unwrap();
@@ -55,7 +61,7 @@ fn command_processor(
             stream.write_all(serialized.as_bytes()).unwrap();
         }
         Command::Scan => {
-            println!("!Scan!");
+            //println!("!Scan!");
             let socket = UdpSocket::bind((Ipv4Addr::new(0, 0, 0, 0), 0))?;
             socket.send_to(SCAN_REQUEST, (ADDR_DAEMON_MULTICAST, PORT_MULTICAST))?;
             data.available.clear(); // clear list of available files to download
@@ -66,7 +72,7 @@ fn command_processor(
             stream.write_all(serialized.as_bytes()).unwrap();
         }
         Command::Ls => {
-            println!("!Ls!");
+            //println!("!Ls!");
             let answ: Answer = Answer::Ls {
                 available_map: data.available.clone(),
             };
@@ -74,7 +80,7 @@ fn command_processor(
             stream.write_all(serialized.as_bytes()).unwrap();
         }
         Command::Status => {
-            println!("!Status!"); //transferring & shared
+            //println!("!Status!"); //transferring & shared
             let answ: Answer = Answer::Status {
                 transferring_map: transferring.lock().unwrap().clone(),
                 shared_map: data.shared.clone(),
@@ -84,8 +90,6 @@ fn command_processor(
             stream.write_all(serialized.as_bytes()).unwrap();
         }
     }
-
-    println!("{:?}", data);
 
     Ok(())
 }
@@ -106,7 +110,7 @@ fn multicast_responder(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
             //check if that's not our daemon, then we will respond
             let message = &buf[..len];
             let mut stream = TcpStream::connect((remote_addr.ip(), PORT_SCAN_TCP))?;
-            println!("MULTICAST RESPONDING TO {}", remote_addr.ip());
+            //println!("MULTICAST RESPONDING TO {}", remote_addr.ip());
 
             if message == SCAN_REQUEST {
                 let dat = data.lock().unwrap();
@@ -173,9 +177,14 @@ fn share_responder(
             Ok(mut _stream) => {
                 let peer_transferring = transferring.clone();
                 let shared = data.lock().unwrap().shared.clone();
-                println!("{:?} asked to share a file", _stream.peer_addr());
                 thread::spawn(move || {
-                    share_to_peer(_stream, peer_transferring, shared).unwrap();
+                    let peer = _stream.peer_addr().unwrap().ip();
+                    match share_to_peer(_stream, peer_transferring, shared) {
+                        Ok(_) => (),
+                        Err(e) => {
+                            eprintln!("Interrupted sharing to {}, an error occured {}", peer, e);
+                        }
+                    }
                 });
             }
             Err(e) => {
@@ -200,6 +209,7 @@ fn handle_first_share_request(
                     filename: asked_filename.clone(),
                     answer: EnumAnswer::NotExist,
                 };
+                println!("{} asked not existing file", stream.peer_addr().unwrap().ip());
             } else {
                 let size_of_file: u64 = std::fs::metadata(shared.get(&asked_filename).unwrap())
                     .unwrap()
@@ -208,12 +218,14 @@ fn handle_first_share_request(
                     filename: asked_filename.clone(),
                     answer: EnumAnswer::Size(size_of_file),
                 };
+                println!("{} asked size of {}", stream.peer_addr().unwrap().ip(), &asked_filename);
             }
             let serialized = serde_json::to_string(&answ).unwrap();
             stream.write_all(serialized.as_bytes()).unwrap();
             return None;
         }
         FileSizeorInfo::Info(info) => {
+            println!("Starting sharing a {} to {}", &asked_filename, stream.peer_addr().unwrap().ip());
             return Some((
                 info,
                 asked_filename.clone(),
@@ -436,21 +448,29 @@ fn download_request(
                 let _fsize = file_size;
                 let peer = peers[i].0.clone();
                 pool.execute(move || {
-                    let _buf = download_from_peer(
+                    let epeer = peer.clone();
+                    let efname = file_info.filename.clone();
+                    let res = download_from_peer(
                         peer,
                         file_info,
                         fpath,
                         _fsize,
                         block_watcher,
                     );
+                    match res {
+                        Ok(_) => (),
+                        Err(e) => {
+                            eprintln!("Downloading {} from {} was interrupted, an error occured {}", efname, epeer.ip(), e);
+                        }
+                    }
                 });
                 i += 1;
             }
             del_i += 1;
         }
         pool.join();
-        if blocks_watcher.lock().unwrap().values().any( |done| *done == false) {
-            eprintln!("The connection was interrupted while downloading a {}", &file_name);
+        if blocks_watcher.lock().unwrap().values().any( |done| *done == false) && interrupted == false {
+            // eprintln!("The connection was interrupted while downloading a {}", &file_name);
             interrupted = true;
         }
     }
@@ -470,7 +490,7 @@ fn download_from_peer(
     file_size: u64,
     block_watcher: Arc<Mutex<HashMap<(u32, u32), bool>>>,
 ) -> io::Result<()> {
-    let mut stream = TcpStream::connect((peer.ip(), PORT_FILE_SHARE)).unwrap();
+    let mut stream = TcpStream::connect((peer.ip(), PORT_FILE_SHARE))?;
 
     let mut buf = vec![0u8; 4096];
     let file_blocks = (file_size / 4096) as u32;
@@ -478,8 +498,8 @@ fn download_from_peer(
     stream.set_read_timeout(Some(Duration::new(45, 0)))?;
     stream.set_write_timeout(Some(Duration::new(45, 0)))?;
 
-    let ser = serde_json::to_string(&file_info).unwrap();
-    stream.write_all(ser.as_bytes()).unwrap();
+    let ser = serde_json::to_string(&file_info)?;
+    stream.write_all(ser.as_bytes())?;
 
     let fblock: u32;
     let lblock: u32;
@@ -505,7 +525,7 @@ fn download_from_peer(
             }
             buf.resize(last_block_size, 0u8);
         }
-        stream.read_exact(&mut buf).unwrap();
+        stream.read_exact(&mut buf)?;
         file.write_all(&buf)?;
     }
     *block_watcher.lock().unwrap().get_mut(&(fblock, lblock)).unwrap() = true;
@@ -559,7 +579,7 @@ fn main() -> io::Result<()> {
                             }
                         }
 
-                        println!("{:?}", *data);
+                        //println!("{:?}", *data);
                         let dat = data.clone();
                         let com_transfer = transferring.clone();
                         let com_download = downloading.clone();
@@ -581,7 +601,7 @@ fn main() -> io::Result<()> {
                 ///////////////
             }
             Err(e) => {
-                println!("Error: {}", e);
+                eprintln!("Error: {}", e);
             }
         }
     }
