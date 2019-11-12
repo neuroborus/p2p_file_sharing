@@ -631,6 +631,138 @@ mod unit_tests {
             Err(e) => panic!("{:?}", e),
         }
     }
+
+    #[test]
+    fn test_remove_other_fsizes_in_vec_two_16_one_32() {
+        let _sock = SocketAddr::new(IpAddr::from(Ipv4Addr::new(0,0,0,0)), 80);
+        let v: Vec<(SocketAddr, u64)> = vec![
+            (_sock.clone(), 16),
+            (_sock.clone(), 32),
+            (_sock.clone(), 16)
+            ];
+        let res: Vec<(SocketAddr, u64)> = vec![
+            (_sock.clone(), 16),
+            (_sock.clone(), 16)
+        ];
+        assert_eq!(remove_other_fsizes_in_vec(v).unwrap(), res);
+    }
+
+    #[test]
+    fn test_remove_other_fsizes_in_vec_two_16_three_32() {
+        let _sock = SocketAddr::new(IpAddr::from(Ipv4Addr::new(0,0,0,0)), 80);
+        let v: Vec<(SocketAddr, u64)> = vec![
+            (_sock.clone(), 16),
+            (_sock.clone(), 16),
+            (_sock.clone(), 32),
+            (_sock.clone(), 32),
+            (_sock.clone(), 32)
+            ];
+        let res: Vec<(SocketAddr, u64)> = vec![
+            (_sock.clone(), 32),
+            (_sock.clone(), 32),
+            (_sock.clone(), 32)
+        ];
+        assert_eq!(remove_other_fsizes_in_vec(v).unwrap(), res);
+    }
+
+    #[test]
+    fn test_remove_other_fsizes_in_vec_one_16() {
+        let _sock = SocketAddr::new(IpAddr::from(Ipv4Addr::new(0,0,0,0)), 80);
+        let v: Vec<(SocketAddr, u64)> = vec![
+            (_sock.clone(), 16)
+            ];
+        let res: Vec<(SocketAddr, u64)> = vec![
+            (_sock.clone(), 16)
+        ];
+        assert_eq!(remove_other_fsizes_in_vec(v).unwrap(), res);
+    }
+
+    #[test]
+    fn test_remove_other_fsizes_in_vec_two_16_two_32() {
+        let _sock = SocketAddr::new(IpAddr::from(Ipv4Addr::new(0,0,0,0)), 80);
+        let v: Vec<(SocketAddr, u64)> = vec![
+            (_sock.clone(), 16),
+            (_sock.clone(), 16),
+            (_sock.clone(), 32),
+            (_sock.clone(), 32)
+            ];
+        let res: Vec<(SocketAddr, u64)> = vec![
+            (_sock.clone(), 32),
+            (_sock.clone(), 32)
+        ];
+        assert_eq!(remove_other_fsizes_in_vec(v).unwrap(), res);
+    }
+
+    #[test]
+    fn test_remove_other_fsizes_in_vec_one_16_one_32() {
+        let _sock = SocketAddr::new(IpAddr::from(Ipv4Addr::new(0,0,0,0)), 80);
+        let v: Vec<(SocketAddr, u64)> = vec![
+            (_sock.clone(), 16),
+            (_sock.clone(), 32)
+            ];
+        let res: Vec<(SocketAddr, u64)> = vec![
+            (_sock.clone(), 32)
+        ];
+        assert_eq!(remove_other_fsizes_in_vec(v).unwrap(), res);
+    }
+
+    #[test]
+    fn test_fill_block_watcher_50_blocks_1_peers() {
+        let blocks: u32 = 50;
+        let peers: u32 = 1;
+        let mut res: HashMap<(u32, u32), bool> = HashMap::new();
+        res.insert((0, 51), false);
+        assert_eq!(res, fill_block_watcher(blocks, peers).unwrap().lock().unwrap().clone());
+    }
+
+    #[test]
+    fn test_fill_block_watcher_100_blocks_2_peers() {
+        let blocks: u32 = 100;
+        let peers: u32 = 2;
+        let mut res: HashMap<(u32, u32), bool> = HashMap::new();
+        res.insert((0, 50), false);
+        res.insert((50, 101), false);
+        assert_eq!(res, fill_block_watcher(blocks, peers).unwrap().lock().unwrap().clone());
+    }
+
+    #[test]
+    fn test_fill_block_watcher_3_blocks_5_peers() {
+        let blocks: u32 = 3;
+        let peers: u32 = 5;
+        let mut res: HashMap<(u32, u32), bool> = HashMap::new();
+        res.insert((0, 1), false);
+        res.insert((1, 2), false);
+        res.insert((2, 4), false);
+        assert_eq!(res, fill_block_watcher(blocks, peers).unwrap().lock().unwrap().clone());
+    }
+
+    #[test]
+    fn test_fill_block_watcher_1_blocks_1_peers() {
+        let blocks: u32 = 1;
+        let peers: u32 = 1;
+        let mut res: HashMap<(u32, u32), bool> = HashMap::new();
+        res.insert((0, 2), false);
+        assert_eq!(res, fill_block_watcher(blocks, peers).unwrap().lock().unwrap().clone());
+    }
+
+    #[test]
+    fn test_fill_block_watcher_2_blocks_1_peers() {
+        let blocks: u32 = 2;
+        let peers: u32 = 1;
+        let mut res: HashMap<(u32, u32), bool> = HashMap::new();
+        res.insert((0, 3), false);
+        assert_eq!(res, fill_block_watcher(blocks, peers).unwrap().lock().unwrap().clone());
+    }
+
+    #[test]
+    fn test_fill_block_watcher_2_blocks_2_peers() {
+        let blocks: u32 = 2;
+        let peers: u32 = 2;
+        let mut res: HashMap<(u32, u32), bool> = HashMap::new();
+        res.insert((0, 1), false);
+        res.insert((1, 3), false);
+        assert_eq!(res, fill_block_watcher(blocks, peers).unwrap().lock().unwrap().clone());
+    }
 }
 
 #[cfg(test)] //Functional tests
