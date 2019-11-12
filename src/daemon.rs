@@ -10,7 +10,7 @@ fn command_processor(
 ) -> io::Result<()> {
     match com {
         Command::Share { file_path: f_path } => {
-            println!("!Share!");
+            //println!("!Share!");
 
             let name: String = String::from(f_path.file_name().unwrap().to_string_lossy());
             data.shared.insert(name, f_path.clone()); //Name - path
@@ -24,7 +24,7 @@ fn command_processor(
             save_path: s_path,
             wait: wat,
         } => {
-            println!("!Download!");
+            //println!("!Download!");
 
             let answ: Answer;
 
@@ -48,6 +48,7 @@ fn command_processor(
                                 eprintln!("Failed to download a {}, an error occured {}", filename, e);
                             }
                         }
+                        ()
                     });
                     if *wat == true {
                         file_thread.join().unwrap();
@@ -60,7 +61,7 @@ fn command_processor(
             stream.write_all(serialized.as_bytes()).unwrap();
         }
         Command::Scan => {
-            println!("!Scan!");
+            //println!("!Scan!");
             let socket = UdpSocket::bind((Ipv4Addr::new(0, 0, 0, 0), 0))?;
             socket.send_to(SCAN_REQUEST, (ADDR_DAEMON_MULTICAST, PORT_MULTICAST))?;
             data.available.clear(); // clear list of available files to download
@@ -71,7 +72,7 @@ fn command_processor(
             stream.write_all(serialized.as_bytes()).unwrap();
         }
         Command::Ls => {
-            println!("!Ls!");
+            //println!("!Ls!");
             let answ: Answer = Answer::Ls {
                 available_map: data.available.clone(),
             };
@@ -79,7 +80,7 @@ fn command_processor(
             stream.write_all(serialized.as_bytes()).unwrap();
         }
         Command::Status => {
-            println!("!Status!"); //transferring & shared
+            //println!("!Status!"); //transferring & shared
             let answ: Answer = Answer::Status {
                 transferring_map: transferring.lock().unwrap().clone(),
                 shared_map: data.shared.clone(),
@@ -109,7 +110,7 @@ fn multicast_responder(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
             //check if that's not our daemon, then we will respond
             let message = &buf[..len];
             let mut stream = TcpStream::connect((remote_addr.ip(), PORT_SCAN_TCP))?;
-            println!("MULTICAST RESPONDING TO {}", remote_addr.ip());
+            //println!("MULTICAST RESPONDING TO {}", remote_addr.ip());
 
             if message == SCAN_REQUEST {
                 let dat = data.lock().unwrap();
@@ -224,7 +225,7 @@ fn handle_first_share_request(
             return None;
         }
         FileSizeorInfo::Info(info) => {
-            println!("Starting sharing a {1} to {0}", stream.peer_addr().unwrap().ip(), &asked_filename);
+            println!("Starting sharing a {} to {}", &asked_filename, stream.peer_addr().unwrap().ip());
             return Some((
                 info,
                 asked_filename.clone(),
@@ -600,7 +601,7 @@ fn main() -> io::Result<()> {
                 ///////////////
             }
             Err(e) => {
-                println!("Error: {}", e);
+                eprintln!("Error: {}", e);
             }
         }
     }
