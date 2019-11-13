@@ -542,9 +542,10 @@ fn main() -> io::Result<()> {
     let listener = TcpListener::bind(("localhost", PORT_CLIENT_DAEMON))?;
     //All about files daemon knowledge
     let data: Arc<Mutex<DataTemp>> = Arc::new(Mutex::new(DataTemp::new()));
-    //Channel for transfeering info about sharing to multicast_responder
+    //HashMap which contains peers, that currently downloading a file from this daemon
     let transferring: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>> =
         Arc::new(Mutex::new(HashMap::new()));
+    //Which files we downloading right now
     let downloading: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 
     let mult_resp_data = data.clone();
