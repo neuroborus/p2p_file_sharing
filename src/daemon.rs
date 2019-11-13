@@ -187,7 +187,7 @@ fn share_responder(
     Ok(())
 }
 //Process the first request from other daemons
-//which means that he wants to get file size or start download a file
+//which is means that he wants to get file size or already start download a file
 fn handle_first_share_request(
     shared: HashMap<String, PathBuf>,
     request: FirstRequest,
