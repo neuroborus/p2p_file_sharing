@@ -17,7 +17,6 @@ pub use std::{
     time::Duration,
 };
 pub use threadpool::ThreadPool;
-//pub enum c_type{share}
 
 pub const ADDR_DAEMON_MULTICAST: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 123);
 pub const PORT_MULTICAST: u16 = 7645;
@@ -37,6 +36,7 @@ pub fn bind_multicast(addr: &Ipv4Addr, port: u16) -> io::Result<UdpSocket> {
     UdpSocket::bind((*addr, port))
 }
 
+///Getting IP of current daemon thread
 pub fn get_this_daemon_ip() -> io::Result<IpAddr> {
     let unique_number = rand::thread_rng().gen::<u128>();
     let self_ip: IpAddr;
@@ -72,29 +72,35 @@ pub fn get_this_daemon_ip() -> io::Result<IpAddr> {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+///A command that is serialized in the client and sent to the daemon
 pub enum Command {
     //Client -> Daemon
-    Share {
-        file_path: PathBuf,
-    },
+    ///Share a file with a network
+    Share { file_path: PathBuf },
+    ///Scans the network for files that can be downloaded
     Scan,
+    ///Show files that can be downloaded
     Ls,
+    ///Download a downloadable file (path is optional)
     Download {
         file_name: String,
         save_path: PathBuf,
-        wait: bool,
+        wait: bool, //Block console until file will download
     },
+    ///Show distributed files
     Status,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
+///The response to the command is serialized in the daemon and sent to the client
 pub enum Answer {
     //Daemon -> Client
     Ok,
     Err(String),
     Ls {
+        ///Available to download
         available_map: HashMap<String, Vec<SocketAddr>>,
-    }, //available
+    },
     Status {
         transferring_map: HashMap<String, Vec<SocketAddr>>,
         shared_map: HashMap<String, PathBuf>,
@@ -103,6 +109,7 @@ pub enum Answer {
 }
 
 #[derive(Debug)]
+///Contain HashMaps of available for transfer and download files
 pub struct DataTemp {
     //Available to downloading files: name_of_file--shared IP addresses
     pub available: HashMap<String, Vec<SocketAddr>>,
@@ -124,6 +131,7 @@ impl DataTemp {
     }
 }
 #[derive(Debug)]
+///Adding peer to transferring vector when created, and removing peer from vector while destroying
 pub struct TransferGuard {
     pub transferring: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>>,
     pub filename: String,
@@ -175,30 +183,35 @@ impl Drop for TransferGuard {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+///Serialized request from daemon which want to get file size or start download a file
 pub struct FirstRequest {
     pub filename: String,
     pub action: FileSizeorInfo,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+///Stores an action downloadable peer want to do
 pub enum FileSizeorInfo {
     Info(FileInfo),
     Size,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+///Store which blocks downloadable
 pub struct FileInfo {
     pub from_block: u32,
     pub to_block: u32,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+///Stores filename and answer to size request
 pub struct AnswerToFirstRequest {
     pub filename: String,
     pub answer: EnumAnswer,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+///If downloadable peer asked file size we answering with size or file not exist
 pub enum EnumAnswer {
     Size(u64),
     NotExist,

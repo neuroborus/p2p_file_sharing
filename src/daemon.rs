@@ -1,6 +1,6 @@
 use lib::*;
 
-///
+///Processing command from client
 fn command_processor(
     com: &Command,
     mut stream: TcpStream,
@@ -102,6 +102,7 @@ fn command_processor(
     Ok(())
 }
 
+///Responds to multicast requests from other daemons
 fn multicast_responder(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
     let this_daemon_ip = get_this_daemon_ip().unwrap();
 
@@ -133,6 +134,7 @@ fn multicast_responder(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
     }
 }
 
+///Receives a response to a multicast from daemons
 fn multicast_receiver(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
     let listener = TcpListener::bind((Ipv4Addr::new(0, 0, 0, 0), PORT_SCAN_TCP))?;
     //get names of files with tcp (his shared - your available)
@@ -174,6 +176,7 @@ fn multicast_receiver(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
     Ok(())
 }
 
+///Processing queries from other daemons
 fn share_responder(
     transferring: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>>,
     data: Arc<Mutex<DataTemp>>,
@@ -203,6 +206,7 @@ fn share_responder(
     Ok(())
 }
 
+///Process first query which is get file size or start download a file
 fn handle_first_share_request(
     shared: HashMap<String, PathBuf>,
     request: FirstRequest,
@@ -257,6 +261,7 @@ fn handle_first_share_request(
     }
 }
 
+///Start sharing the file to other daemon
 fn share_to_peer(
     mut stream: TcpStream,
     transferring: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>>,
@@ -318,6 +323,7 @@ fn share_to_peer(
     Ok(())
 }
 
+///Fill the HashMap of peer and his file size
 fn get_fsize_on_each_peer(
     peer_list: Vec<SocketAddr>,
     file_name: String,
@@ -375,6 +381,7 @@ fn get_fsize_on_each_peer(
     Ok(peers)
 }
 
+///Leave the most used file size and peer
 fn remove_other_fsizes_in_vec(
     mut peers: Vec<(SocketAddr, u64)>,
 ) -> io::Result<Vec<(SocketAddr, u64)>> {
@@ -399,6 +406,7 @@ fn remove_other_fsizes_in_vec(
     Ok(peers)
 }
 
+///Split up the file in blocks and peers
 fn fill_block_watcher(
     blocks: u32,
     peers_count: u32,
@@ -428,6 +436,7 @@ fn fill_block_watcher(
     Ok(blocks_watcher)
 }
 
+///Send the download file request to other daemons
 fn download_request(
     file_name: String,
     file_path: PathBuf,
@@ -532,6 +541,7 @@ fn download_request(
     Ok(())
 }
 
+///Download a specific file blocks from peer
 fn download_from_peer(
     peer: SocketAddr,
     file_info: FirstRequest,
