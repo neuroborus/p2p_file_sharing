@@ -122,7 +122,7 @@ fn main() -> io::Result<()> {
                     Answer::Status {
                         transferring_map: t_map,
                         shared_map: s_map,
-                        downloading_map: d_map
+                        downloading_map: d_map,
                     } => {
                         println!("Sharing:");
                         for file in s_map.keys() {
@@ -134,7 +134,7 @@ fn main() -> io::Result<()> {
                                         println!("\t\t{}", peer.ip());
                                     }
                                 }
-                                None => ()
+                                None => (),
                             }
                         }
                         println!("Downloading:");
@@ -145,7 +145,7 @@ fn main() -> io::Result<()> {
                     Answer::Err(e) => {
                         println!("{}", e);
                     }
-                    _ => ()
+                    _ => (),
                 }
             }
             Err(_) => {
