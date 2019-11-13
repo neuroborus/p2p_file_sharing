@@ -26,51 +26,6 @@ pub const PORT_FILE_SHARE: u16 = 7648;
 pub const GET_SELF_IP_PORT: u16 = 60005;
 pub const SCAN_REQUEST: &[u8; 20] = b"UDP_Scan_Request_P2P";
 
-#[cfg(windows)]
-pub fn bind_multicast(_addr: &Ipv4Addr, port: u16) -> io::Result<UdpSocket> {
-    UdpSocket::bind((Ipv4Addr::new(0, 0, 0, 0), port))
-}
-
-#[cfg(unix)]
-pub fn bind_multicast(addr: &Ipv4Addr, port: u16) -> io::Result<UdpSocket> {
-    UdpSocket::bind((*addr, port))
-}
-
-///Getting IP of current daemon thread
-pub fn get_this_daemon_ip() -> io::Result<IpAddr> {
-    let unique_number = rand::thread_rng().gen::<u128>();
-    let self_ip: IpAddr;
-    {
-        let local_network: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
-        let listener = bind_multicast(&ADDR_DAEMON_MULTICAST, GET_SELF_IP_PORT)?;
-        listener
-            .join_multicast_v4(&ADDR_DAEMON_MULTICAST, &local_network)
-            .unwrap();
-        {
-            let socket = UdpSocket::bind((local_network, 0)).unwrap();
-            socket
-                .send_to(
-                    unique_number.to_string().as_bytes(),
-                    (ADDR_DAEMON_MULTICAST, GET_SELF_IP_PORT),
-                )
-                .unwrap();
-        }
-        let mut buf = vec![0; 4096];
-        loop {
-            let (len, remote_addr) = listener.recv_from(&mut buf).unwrap();
-            let msg = &buf[..len];
-            let rec_num = u128::from_str(str::from_utf8(msg).unwrap()).unwrap();
-            if rec_num == unique_number {
-                self_ip = remote_addr.ip();
-                break;
-            }
-            continue;
-        }
-    }
-    println!("Daemon IP in local network is {}", self_ip);
-    Ok(self_ip)
-}
-
 #[derive(Serialize, Deserialize, Debug)]
 ///A command that is serialized in the client and sent to the daemon
 pub enum Command {
