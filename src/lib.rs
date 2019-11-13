@@ -100,7 +100,7 @@ impl TransferGuard {
             filename: _filename,
             peer: _peer,
         };
-
+        //Pushing the peer to vector
         {
             let mut transfer_map = guard.transferring.lock().unwrap();
             match transfer_map.get_mut(&guard.filename) {
@@ -120,6 +120,7 @@ impl TransferGuard {
 
 impl Drop for TransferGuard {
     fn drop(&mut self) {
+    //Removing the peer from vector
         {
             let mut transfer_map = self.transferring.lock().unwrap();
             if transfer_map.get(&self.filename).unwrap().len() == 1 {
