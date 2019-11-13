@@ -1,5 +1,6 @@
 [github](https://github.com/Neuroborus/p2p_file_sharing)
 
+`cargo doc --open` to generate automatic documentation
 
 Files
 =======================================
@@ -55,5 +56,3 @@ remove_other_fsizes_in_vec(...) | Leave the most used file size and peer
 fill_block_watcher(...)         | Split up the file in blocks and peers
 download_request(...)           | Send the download file request to other daemons
 download_from_peer(...)         | Download a specific file blocks from peer
-
-

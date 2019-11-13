@@ -1,6 +1,50 @@
 use lib::*;
 
-///Function to process requests from client
+#[cfg(windows)]
+pub fn bind_multicast(_addr: &Ipv4Addr, port: u16) -> io::Result<UdpSocket> {
+    UdpSocket::bind((Ipv4Addr::new(0, 0, 0, 0), port))
+}
+#[cfg(unix)]
+pub fn bind_multicast(addr: &Ipv4Addr, port: u16) -> io::Result<UdpSocket> {
+    UdpSocket::bind((*addr, port))
+}
+
+///Getting IP of current daemon thread
+pub fn get_this_daemon_ip() -> io::Result<IpAddr> {
+    let unique_number = rand::thread_rng().gen::<u128>();
+    let self_ip: IpAddr;
+    {
+        let local_network: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
+        let listener = bind_multicast(&ADDR_DAEMON_MULTICAST, GET_SELF_IP_PORT)?;
+        listener
+            .join_multicast_v4(&ADDR_DAEMON_MULTICAST, &local_network)
+            .unwrap();
+        {
+            let socket = UdpSocket::bind((local_network, 0)).unwrap();
+            socket
+                .send_to(
+                    unique_number.to_string().as_bytes(),
+                    (ADDR_DAEMON_MULTICAST, GET_SELF_IP_PORT),
+                )
+                .unwrap();
+        }
+        let mut buf = vec![0; 4096];
+        loop {
+            let (len, remote_addr) = listener.recv_from(&mut buf).unwrap();
+            let msg = &buf[..len];
+            let rec_num = u128::from_str(str::from_utf8(msg).unwrap()).unwrap();
+            if rec_num == unique_number {
+                self_ip = remote_addr.ip();
+                break;
+            }
+            continue;
+        }
+    }
+    println!("Daemon IP in local network is {}", self_ip);
+    Ok(self_ip)
+}
+
+///Processing command from client
 fn command_processor(
     com: &Command,//the request itself
     mut stream: TcpStream,
@@ -39,10 +83,18 @@ fn command_processor(
                     let filename = f_name.clone();
                     let savepath = s_path.clone();
                     let file_thread = thread::spawn(move || {
-                        match download_request(filename.clone(), savepath, available_list, downloading) {
+                        match download_request(
+                            filename.clone(),
+                            savepath,
+                            available_list,
+                            downloading,
+                        ) {
                             Ok(_) => (),
-                            Err(e) => {// If thread paniced
-                                eprintln!("Failed to download a {}, an error occured {}", filename, e);
+                            Err(e) => {
+                                eprintln!(
+                                    "Failed to download a {}, an error occured {}",
+                                    filename, e
+                                );
                             }
                         }
                         ()
@@ -88,7 +140,8 @@ fn command_processor(
 
     Ok(())
 }
-//Respond other daemons UDP "scan" request
+
+///Responds to multicast requests from other daemons
 fn multicast_responder(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
     let this_daemon_ip = get_this_daemon_ip().unwrap();
 
@@ -116,6 +169,7 @@ fn multicast_responder(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
         }
     }
 }
+
 //Function that receiving answer from other daemons to refresh our "available files to download" list
 fn multicast_receiver(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
     let listener = TcpListener::bind((Ipv4Addr::new(0, 0, 0, 0), PORT_SCAN_TCP))?;
@@ -157,6 +211,7 @@ fn multicast_receiver(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
     }
     Ok(())
 }
+
 //Function to process the other daemon "download file" requests
 fn share_responder(
     transferring: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>>,
@@ -186,8 +241,8 @@ fn share_responder(
     }
     Ok(())
 }
-//Process the first request from other daemons
-//which is means that he wants to get file size or already start download a file
+
+///Process first query which is get file size or start download a file
 fn handle_first_share_request(
     shared: HashMap<String, PathBuf>,
     request: FirstRequest,
@@ -202,7 +257,10 @@ fn handle_first_share_request(
                     filename: asked_filename.clone(),
                     answer: EnumAnswer::NotExist,
                 };// We setting the answer to file does not exist
-                println!("{} asked not existing file", stream.peer_addr().unwrap().ip());
+                println!(
+                    "{} asked not existing file",
+                    stream.peer_addr().unwrap().ip()
+                );
             } else {
                 let size_of_file: u64 = std::fs::metadata(shared.get(&asked_filename).unwrap())
                     .unwrap()
@@ -211,14 +269,22 @@ fn handle_first_share_request(
                     filename: asked_filename.clone(),
                     answer: EnumAnswer::Size(size_of_file),
                 };//In the other case, we setting the answer to file size
-                println!("{} asked size of {}", stream.peer_addr().unwrap().ip(), &asked_filename);
+                println!(
+                    "{} asked size of {}",
+                    stream.peer_addr().unwrap().ip(),
+                    &asked_filename
+                );
             }
             let serialized = serde_json::to_string(&answ).unwrap();
             stream.write_all(serialized.as_bytes()).unwrap();//Sending the answer
             return None;
         }
         FileSizeorInfo::Info(info) => {//The other daemon wants to start downloading a file
-            println!("Starting sharing a {} to {}", &asked_filename, stream.peer_addr().unwrap().ip());
+            println!(
+                "Starting sharing a {} to {}",
+                &asked_filename,
+                stream.peer_addr().unwrap().ip()
+            );
             return Some((
                 info,
                 asked_filename.clone(),
@@ -231,6 +297,7 @@ fn handle_first_share_request(
     }
 }
 
+///Start sharing the file to other daemon
 fn share_to_peer(
     mut stream: TcpStream,
     transferring: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>>,
@@ -270,7 +337,11 @@ fn share_to_peer(
     // that thing is interesting one
     // While TransferGuard is creating he's adding a peer to a vector,
     // that stores a daemons, which downloading a file from us
-    let _transfer_guard = TransferGuard::new(transferring.clone(), file_name.clone(), stream.peer_addr().unwrap());
+    let _transfer_guard = TransferGuard::new(
+        transferring.clone(),
+        file_name.clone(),
+        stream.peer_addr().unwrap(),
+    );
     // and when something is wrong like we cannot open the file,
     // or the stream write timeout is ended,
     // guard will automatically remove the daemon address from vector...
@@ -294,9 +365,10 @@ fn share_to_peer(
     Ok(())
 }
 
+///Fill the HashMap of peer and his file size
 fn get_fsize_on_each_peer(
     peer_list: Vec<SocketAddr>,
-    file_name: String
+    file_name: String,
 ) -> io::Result<Vec<(SocketAddr, u64)>> {
     let mut buf = vec![0; 4096];
     let mut peers: Vec<(SocketAddr, u64)> = Vec::new();
@@ -351,6 +423,7 @@ fn get_fsize_on_each_peer(
     Ok(peers)// returning the vector with daemons addresses and there's file sizes
 }
 
+///Leave the most used file size and peer
 fn remove_other_fsizes_in_vec(
     mut peers: Vec<(SocketAddr, u64)>,
 ) -> io::Result<Vec<(SocketAddr, u64)>> {
@@ -366,25 +439,30 @@ fn remove_other_fsizes_in_vec(
         }
     });
     //Choosing the most used, if they equal, selecting the last one
-    let file_size = fsize_count.iter().max_by(|(_, fcount), (_, scount)| fcount.cmp(scount)).unwrap().0;
+    let file_size = fsize_count
+        .iter()
+        .max_by(|(_, fcount), (_, scount)| fcount.cmp(scount))
+        .unwrap()
+        .0;
 
     peers.retain(|(_, size)| *size == file_size); // removes peers with other file size
     //This is the power iterators of RUST
     Ok(peers)
 }
-//Spliting up blocks to each peer
+
+//Split up the file in blocks and peers
 fn fill_block_watcher(
     blocks: u32,
-    peers_count: u32
+    peers_count: u32,
 ) -> io::Result<Arc<Mutex<HashMap<(u32, u32), bool>>>> {
     let blocks_watcher = Arc::new(Mutex::new(HashMap::new()));
     if blocks < peers_count {
         let mut b_watch = blocks_watcher.lock().unwrap();
         for i in 0..blocks {
-            if i == blocks-1 {
-                b_watch.insert((i, i+2), false);
+            if i == blocks - 1 {
+                b_watch.insert((i, i + 2), false);
             } else {
-                b_watch.insert((i, i+1), false);
+                b_watch.insert((i, i + 1), false);
             }
         }
     } else {
@@ -401,7 +479,9 @@ fn fill_block_watcher(
     }
     Ok(blocks_watcher)
 }
+
 //Still need to refactor this func
+//Send the download file request to other daemons
 fn download_request(
     file_name: String,
     file_path: PathBuf,
@@ -423,13 +503,20 @@ fn download_request(
 
     let pool: ThreadPool;
     //We tracking the downloading file status in watcher
-    let blocks_watcher: Arc<Mutex<HashMap<(u32, u32), bool>>> = fill_block_watcher(blocks, peers_count).unwrap();
-  
+    let blocks_watcher: Arc<Mutex<HashMap<(u32, u32), bool>>> =
+        fill_block_watcher(blocks, peers_count).unwrap();
+
     pool = ThreadPool::new(blocks_watcher.lock().unwrap().len());
 
     let mut interrupted = false;
 
-    while blocks_watcher.lock().unwrap().values().any( |done| *done == false) && peers.len() > 0 {
+    while blocks_watcher
+        .lock()
+        .unwrap()
+        .values()
+        .any(|done| *done == false)
+        && peers.len() > 0
+    {
         let block_lines = blocks_watcher.lock().unwrap().clone();
         let mut i = 0;
         let mut del_i: usize = 0;
@@ -437,14 +524,16 @@ fn download_request(
             if done == false {
                 if interrupted {
                     peers.remove(del_i);
-                    if peers.len() == 0 { break; }
+                    if peers.len() == 0 {
+                        break;
+                    }
                 }
                 let file_info = FirstRequest {
                     filename: file_name.clone(),
                     action: FileSizeorInfo::Info(FileInfo {
                         from_block: fblock,
                         to_block: lblock,
-                    })
+                    }),
                 };
                 let fpath = file_path.clone();
                 let block_watcher = blocks_watcher.clone();
@@ -454,17 +543,16 @@ fn download_request(
                 pool.execute(move || {
                     let epeer = peer.clone();
                     let efname = file_info.filename.clone();
-                    let res = download_from_peer(
-                        peer,
-                        file_info,
-                        fpath,
-                        _fsize,
-                        block_watcher,
-                    );
+                    let res = download_from_peer(peer, file_info, fpath, _fsize, block_watcher);
                     match res {
                         Ok(_) => (),
                         Err(e) => {
-                            eprintln!("Downloading {} from {} was interrupted, an error occured {}", efname, epeer.ip(), e);
+                            eprintln!(
+                                "Downloading {} from {} was interrupted, an error occured {}",
+                                efname,
+                                epeer.ip(),
+                                e
+                            );
                         }
                     }
                 });
@@ -473,13 +561,27 @@ fn download_request(
             del_i += 1;
         }
         pool.join();//Waiting till every thread is ended
-        if blocks_watcher.lock().unwrap().values().any( |done| *done == false) && interrupted == false {
+        if blocks_watcher
+            .lock()
+            .unwrap()
+            .values()
+            .any(|done| *done == false)
+            && interrupted == false
+        {
             // eprintln!("The connection was interrupted while downloading a {}", &file_name);
             interrupted = true;
         }
     }
-    downloading.lock().unwrap().retain(|line| *line != file_name);
-    if blocks_watcher.lock().unwrap().values().any( |done| *done == false) {// If file is does not downloaded completely
+    downloading
+        .lock()
+        .unwrap()
+        .retain(|line| *line != file_name);
+    if blocks_watcher
+        .lock()
+        .unwrap()
+        .values()
+        .any(|done| *done == false)
+    {// If file is does not downloaded completely
         fs::remove_file(&file_name)?;//Removing downloaded
         eprintln!("Failed to download a {}", file_name);
     }
@@ -487,6 +589,7 @@ fn download_request(
     Ok(())
 }
 
+///Download a specific file blocks from peer
 fn download_from_peer(
     peer: SocketAddr,
     file_info: FirstRequest,
@@ -532,7 +635,11 @@ fn download_from_peer(
         stream.read_exact(&mut buf)?;
         file.write_all(&buf)?;
     }
-    *block_watcher.lock().unwrap().get_mut(&(fblock, lblock)).unwrap() = true;
+    *block_watcher
+        .lock()
+        .unwrap()
+        .get_mut(&(fblock, lblock))
+        .unwrap() = true;
     Ok(())
 }
 
@@ -659,75 +766,60 @@ mod unit_tests {
 
     #[test]
     fn test_remove_other_fsizes_in_vec_two_16_one_32() {
-        let _sock = SocketAddr::new(IpAddr::from(Ipv4Addr::new(0,0,0,0)), 80);
+        let _sock = SocketAddr::new(IpAddr::from(Ipv4Addr::new(0, 0, 0, 0)), 80);
         let v: Vec<(SocketAddr, u64)> = vec![
             (_sock.clone(), 16),
             (_sock.clone(), 32),
-            (_sock.clone(), 16)
-            ];
-        let res: Vec<(SocketAddr, u64)> = vec![
             (_sock.clone(), 16),
-            (_sock.clone(), 16)
         ];
+        let res: Vec<(SocketAddr, u64)> = vec![(_sock.clone(), 16), (_sock.clone(), 16)];
         assert_eq!(remove_other_fsizes_in_vec(v).unwrap(), res);
     }
 
     #[test]
     fn test_remove_other_fsizes_in_vec_two_16_three_32() {
-        let _sock = SocketAddr::new(IpAddr::from(Ipv4Addr::new(0,0,0,0)), 80);
+        let _sock = SocketAddr::new(IpAddr::from(Ipv4Addr::new(0, 0, 0, 0)), 80);
         let v: Vec<(SocketAddr, u64)> = vec![
             (_sock.clone(), 16),
             (_sock.clone(), 16),
             (_sock.clone(), 32),
             (_sock.clone(), 32),
-            (_sock.clone(), 32)
-            ];
+            (_sock.clone(), 32),
+        ];
         let res: Vec<(SocketAddr, u64)> = vec![
             (_sock.clone(), 32),
             (_sock.clone(), 32),
-            (_sock.clone(), 32)
+            (_sock.clone(), 32),
         ];
         assert_eq!(remove_other_fsizes_in_vec(v).unwrap(), res);
     }
 
     #[test]
     fn test_remove_other_fsizes_in_vec_one_16() {
-        let _sock = SocketAddr::new(IpAddr::from(Ipv4Addr::new(0,0,0,0)), 80);
-        let v: Vec<(SocketAddr, u64)> = vec![
-            (_sock.clone(), 16)
-            ];
-        let res: Vec<(SocketAddr, u64)> = vec![
-            (_sock.clone(), 16)
-        ];
+        let _sock = SocketAddr::new(IpAddr::from(Ipv4Addr::new(0, 0, 0, 0)), 80);
+        let v: Vec<(SocketAddr, u64)> = vec![(_sock.clone(), 16)];
+        let res: Vec<(SocketAddr, u64)> = vec![(_sock.clone(), 16)];
         assert_eq!(remove_other_fsizes_in_vec(v).unwrap(), res);
     }
 
     #[test]
     fn test_remove_other_fsizes_in_vec_two_16_two_32() {
-        let _sock = SocketAddr::new(IpAddr::from(Ipv4Addr::new(0,0,0,0)), 80);
+        let _sock = SocketAddr::new(IpAddr::from(Ipv4Addr::new(0, 0, 0, 0)), 80);
         let v: Vec<(SocketAddr, u64)> = vec![
             (_sock.clone(), 16),
             (_sock.clone(), 16),
             (_sock.clone(), 32),
-            (_sock.clone(), 32)
-            ];
-        let res: Vec<(SocketAddr, u64)> = vec![
             (_sock.clone(), 32),
-            (_sock.clone(), 32)
         ];
+        let res: Vec<(SocketAddr, u64)> = vec![(_sock.clone(), 32), (_sock.clone(), 32)];
         assert_eq!(remove_other_fsizes_in_vec(v).unwrap(), res);
     }
 
     #[test]
     fn test_remove_other_fsizes_in_vec_one_16_one_32() {
-        let _sock = SocketAddr::new(IpAddr::from(Ipv4Addr::new(0,0,0,0)), 80);
-        let v: Vec<(SocketAddr, u64)> = vec![
-            (_sock.clone(), 16),
-            (_sock.clone(), 32)
-            ];
-        let res: Vec<(SocketAddr, u64)> = vec![
-            (_sock.clone(), 32)
-        ];
+        let _sock = SocketAddr::new(IpAddr::from(Ipv4Addr::new(0, 0, 0, 0)), 80);
+        let v: Vec<(SocketAddr, u64)> = vec![(_sock.clone(), 16), (_sock.clone(), 32)];
+        let res: Vec<(SocketAddr, u64)> = vec![(_sock.clone(), 32)];
         assert_eq!(remove_other_fsizes_in_vec(v).unwrap(), res);
     }
 
@@ -737,7 +829,14 @@ mod unit_tests {
         let peers: u32 = 1;
         let mut res: HashMap<(u32, u32), bool> = HashMap::new();
         res.insert((0, 51), false);
-        assert_eq!(res, fill_block_watcher(blocks, peers).unwrap().lock().unwrap().clone());
+        assert_eq!(
+            res,
+            fill_block_watcher(blocks, peers)
+                .unwrap()
+                .lock()
+                .unwrap()
+                .clone()
+        );
     }
 
     #[test]
@@ -747,7 +846,14 @@ mod unit_tests {
         let mut res: HashMap<(u32, u32), bool> = HashMap::new();
         res.insert((0, 50), false);
         res.insert((50, 101), false);
-        assert_eq!(res, fill_block_watcher(blocks, peers).unwrap().lock().unwrap().clone());
+        assert_eq!(
+            res,
+            fill_block_watcher(blocks, peers)
+                .unwrap()
+                .lock()
+                .unwrap()
+                .clone()
+        );
     }
 
     #[test]
@@ -758,7 +864,14 @@ mod unit_tests {
         res.insert((0, 1), false);
         res.insert((1, 2), false);
         res.insert((2, 4), false);
-        assert_eq!(res, fill_block_watcher(blocks, peers).unwrap().lock().unwrap().clone());
+        assert_eq!(
+            res,
+            fill_block_watcher(blocks, peers)
+                .unwrap()
+                .lock()
+                .unwrap()
+                .clone()
+        );
     }
 
     #[test]
@@ -767,7 +880,14 @@ mod unit_tests {
         let peers: u32 = 1;
         let mut res: HashMap<(u32, u32), bool> = HashMap::new();
         res.insert((0, 2), false);
-        assert_eq!(res, fill_block_watcher(blocks, peers).unwrap().lock().unwrap().clone());
+        assert_eq!(
+            res,
+            fill_block_watcher(blocks, peers)
+                .unwrap()
+                .lock()
+                .unwrap()
+                .clone()
+        );
     }
 
     #[test]
@@ -776,7 +896,14 @@ mod unit_tests {
         let peers: u32 = 1;
         let mut res: HashMap<(u32, u32), bool> = HashMap::new();
         res.insert((0, 3), false);
-        assert_eq!(res, fill_block_watcher(blocks, peers).unwrap().lock().unwrap().clone());
+        assert_eq!(
+            res,
+            fill_block_watcher(blocks, peers)
+                .unwrap()
+                .lock()
+                .unwrap()
+                .clone()
+        );
     }
 
     #[test]
@@ -786,7 +913,14 @@ mod unit_tests {
         let mut res: HashMap<(u32, u32), bool> = HashMap::new();
         res.insert((0, 1), false);
         res.insert((1, 3), false);
-        assert_eq!(res, fill_block_watcher(blocks, peers).unwrap().lock().unwrap().clone());
+        assert_eq!(
+            res,
+            fill_block_watcher(blocks, peers)
+                .unwrap()
+                .lock()
+                .unwrap()
+                .clone()
+        );
     }
 }
 
