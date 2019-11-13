@@ -52,10 +52,11 @@ pub enum Answer {
     //Daemon -> Client
     Ok,
     Err(String),
+    ///Available to download
     Ls {
-        ///Available to download
         available_map: HashMap<String, Vec<SocketAddr>>,
     },
+    ///Distributed files
     Status {
         transferring_map: HashMap<String, Vec<SocketAddr>>,
         shared_map: HashMap<String, PathBuf>,
@@ -68,20 +69,15 @@ pub enum Answer {
 pub struct DataTemp {
     //Available to downloading files: name_of_file--shared IP addresses
     pub available: HashMap<String, Vec<SocketAddr>>,
-    //pub downloading: HashMap<String, Vec<SocketAddr>>, //Already downloading
-    //
     //Your files, that available to transfer
     pub shared: HashMap<String, PathBuf>, //FileName - Path
-                                          //pub transferring: HashMap<String, Vec<SocketAddr>>, //Already transferring
 }
 
 impl DataTemp {
     pub fn new() -> Self {
         DataTemp {
             available: HashMap::new(),
-            //downloading: HashMap::new(),
             shared: HashMap::new(),
-            //transferring: HashMap::new(),
         }
     }
 }

@@ -5,7 +5,6 @@ use lib::*;
 pub fn bind_multicast(_addr: &Ipv4Addr, port: u16) -> io::Result<UdpSocket> {
     UdpSocket::bind((Ipv4Addr::new(0, 0, 0, 0), port))
 }
-
 #[cfg(unix)]
 pub fn bind_multicast(addr: &Ipv4Addr, port: u16) -> io::Result<UdpSocket> {
     UdpSocket::bind((*addr, port))
