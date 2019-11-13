@@ -76,7 +76,7 @@ fn main() -> io::Result<()> {
                 //
                 let com: Command;
                 if matches.is_present("FLG_WAIT") {
-                    //If user wants to block console until download is finished
+                    //If the user wants to block the input until the file is downloaded
                     com = Command::Download {
                         file_name: f_name,
                         save_path: s_path,

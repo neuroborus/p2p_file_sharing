@@ -85,7 +85,7 @@ pub enum Command {
     Download {
         file_name: String,
         save_path: PathBuf,
-        wait: bool, //Block console until file will download
+        wait: bool, //Block input until file is downloaded
     },
     ///Show distributed files
     Status,
