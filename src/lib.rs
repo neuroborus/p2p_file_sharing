@@ -2,7 +2,7 @@ pub use rand::Rng;
 use serde_derive::*;
 pub use std::{
     collections::{HashMap, LinkedList},
-    env, fs, io,
+    fs, io,
     io::{prelude::*, Read, SeekFrom, Write},
     net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream, UdpSocket},
     path::PathBuf,
@@ -144,13 +144,13 @@ pub struct FirstRequest {
 #[derive(Serialize, Deserialize, Debug)]
 ///Stores an action downloadable peer want to do
 pub enum FileSizeorInfo {
-    Info(FileInfo),
+    Info(BlockInfo),
     Size,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-///Store which blocks downloadable
-pub struct FileInfo {
+///Store which blocks are downloadable
+pub struct BlockInfo {
     pub from_block: u32,
     pub to_block: u32,
 }
@@ -159,12 +159,12 @@ pub struct FileInfo {
 ///Stores filename and answer to size request
 pub struct AnswerToFirstRequest {
     pub filename: String,
-    pub answer: EnumAnswer,
+    pub answer: FileInfo,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 ///If downloadable peer asked file size we answering with size or file not exist
-pub enum EnumAnswer {
+pub enum FileInfo {
     Size(u64),
     NotExist,
 }

@@ -44,19 +44,19 @@ pub fn get_this_daemon_ip() -> io::Result<IpAddr> {
     Ok(self_ip)
 }
 
-///Processing command from client
+///Processing a command from client
 fn command_processor(
-    com: &Command,//the request itself
+    com: &Command,  //command itself
     mut stream: TcpStream,
-    mut data: MutexGuard<DataTemp>,
-    transferring: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>>,//HashMap to refresh status of transferring files
-    downloading: Arc<Mutex<Vec<String>>>,// Vector to refresh status of downloading files
+    mut data: MutexGuard<DataTemp>, //  Contain shared & available files
+    transferring: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>>, //  HashMap for refreshing status about transferring files
+    downloading: Arc<Mutex<Vec<String>>>,   // Vector for refreshing status about downloading files
 ) -> io::Result<()> {
     match com {
         Command::Share { file_path: f_path } => {
 
             let name: String = String::from(f_path.file_name().unwrap().to_string_lossy());
-            data.shared.insert(name, f_path.clone()); //Name - path
+            data.shared.insert(name, f_path.clone()); //    Name - path
 
             let answ = Answer::Ok;
             let serialized = serde_json::to_string(&answ)?;
@@ -69,10 +69,10 @@ fn command_processor(
         } => {
             let answ: Answer;
 
-            if data.available.contains_key(f_name) == false {// If no one share this file
+            if data.available.contains_key(f_name) == false {   // If no one share this file
                 answ = Answer::Err(String::from("File is not available to download!"));
-            } else if data.shared.contains_key(f_name) == true {//If we already share this file
-                answ = Answer::Err(String::from("You already own this file, and even sharing!"));
+            } else if data.shared.contains_key(f_name) == true {    //If we already share this file
+                answ = Answer::Err(String::from("You are already sharing this file!"));
             } else {
                 answ = Answer::Ok;
             }
@@ -105,16 +105,14 @@ fn command_processor(
                 }
                 _ => {}
             }
-
             let serialized = serde_json::to_string(&answ)?;
             stream.write_all(serialized.as_bytes()).unwrap();//answer to client
         }
         Command::Scan => {
             let socket = UdpSocket::bind((Ipv4Addr::new(0, 0, 0, 0), 0))?;
+            data.available.clear(); // Clear list of available files to download
+                                    //the list will be refreshed in multicast_receiver
             socket.send_to(SCAN_REQUEST, (ADDR_DAEMON_MULTICAST, PORT_MULTICAST))?;
-            data.available.clear(); // clear list of available files to download
-                                    //the list gonna be refreshed in multicast_receiver
-
             let answ = Answer::Ok;
             let serialized = serde_json::to_string(&answ)?;
             stream.write_all(serialized.as_bytes()).unwrap();
@@ -173,7 +171,7 @@ fn multicast_responder(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
 //Function that receiving answer from other daemons to refresh our "available files to download" list
 fn multicast_receiver(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
     let listener = TcpListener::bind((Ipv4Addr::new(0, 0, 0, 0), PORT_SCAN_TCP))?;
-    //get names of files with tcp (his shared - your available)
+    //Get names of files with tcp (his shared - your available)
     let mut buf = vec![0 as u8; 4096];
     for stream in listener.incoming() {
         match stream {
@@ -224,9 +222,9 @@ fn share_responder(
             Ok(mut _stream) => {
                 let peer_transferring = transferring.clone();
                 let shared = data.lock().unwrap().shared.clone();
-                thread::spawn(move || {//giving a response for sharing a file other daemon to thread with func 
+                thread::spawn(move || {//giving a response for sharing a file with other daemon
                     let peer = _stream.peer_addr().unwrap().ip();
-                    match share_to_peer(_stream, peer_transferring, shared) {
+                    match transfer_to_peer(_stream, peer_transferring, shared) {
                         Ok(_) => (),
                         Err(e) => {
                             eprintln!("Interrupted sharing to {}, an error occured {}", peer, e);
@@ -242,63 +240,8 @@ fn share_responder(
     Ok(())
 }
 
-///Process first query which is get file size or start download a file
-fn handle_first_share_request(
-    shared: HashMap<String, PathBuf>,
-    request: FirstRequest,
-    mut stream: TcpStream,
-) -> Option<(FileInfo, String, u64, TcpStream)> {
-    let asked_filename: String = request.filename;
-    match request.action { // Process the request
-        FileSizeorInfo::Size => {// The other guy wants a file size
-            let answ: AnswerToFirstRequest;
-            if shared.contains_key(&asked_filename) == false {//If we do not sharing this file
-                answ = AnswerToFirstRequest {
-                    filename: asked_filename.clone(),
-                    answer: EnumAnswer::NotExist,
-                };// We setting the answer to file does not exist
-                println!(
-                    "{} asked not existing file",
-                    stream.peer_addr().unwrap().ip()
-                );
-            } else {
-                let size_of_file: u64 = std::fs::metadata(shared.get(&asked_filename).unwrap())
-                    .unwrap()
-                    .len(); //get file size
-                answ = AnswerToFirstRequest {
-                    filename: asked_filename.clone(),
-                    answer: EnumAnswer::Size(size_of_file),
-                };//In the other case, we setting the answer to file size
-                println!(
-                    "{} asked size of {}",
-                    stream.peer_addr().unwrap().ip(),
-                    &asked_filename
-                );
-            }
-            let serialized = serde_json::to_string(&answ).unwrap();
-            stream.write_all(serialized.as_bytes()).unwrap();//Sending the answer
-            return None;
-        }
-        FileSizeorInfo::Info(info) => {//The other daemon wants to start downloading a file
-            println!(
-                "Starting sharing a {} to {}",
-                &asked_filename,
-                stream.peer_addr().unwrap().ip()
-            );
-            return Some((
-                info,
-                asked_filename.clone(),
-                std::fs::metadata(shared.get(&asked_filename).unwrap())
-                    .unwrap()
-                    .len(),
-                stream,
-            ));
-        }
-    }
-}
-
 ///Start sharing the file to other daemon
-fn share_to_peer(
+fn transfer_to_peer(
     mut stream: TcpStream,
     transferring: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>>,
     shared: HashMap<String, PathBuf>,
@@ -308,7 +251,7 @@ fn share_to_peer(
     stream.set_read_timeout(Some(Duration::new(45, 0)))?;
     stream.set_write_timeout(Some(Duration::new(45, 0)))?;// setting the timeouts
 
-    let file_info: FileInfo;
+    let file_info: BlockInfo;
     let file_name: String;
     let file_size: u64;
 
@@ -335,16 +278,16 @@ fn share_to_peer(
 
     let blocks: u32;
     // that thing is interesting one
-    // While TransferGuard is creating he's adding a peer to a vector,
-    // that stores a daemons, which downloading a file from us
+    // While TransferGuard is creating he's adding a peer to the vector,
+    // that stores a daemons, which download a file from us
     let _transfer_guard = TransferGuard::new(
         transferring.clone(),
         file_name.clone(),
         stream.peer_addr().unwrap(),
     );
-    // and when something is wrong like we cannot open the file,
-    // or the stream write timeout is ended,
-    // guard will automatically remove the daemon address from vector...
+    // and when something is wrong (like we cannot open the file
+    // or the stream write timeout is ended),
+    // guard will automatically remove the daemon address from vector
 
     blocks = (file_size / 4096) as u32;
     let last_block_size = (file_size % 4096) as usize;
@@ -352,7 +295,7 @@ fn share_to_peer(
     let mut file = fs::File::open(&file_name)?;
     file.seek(SeekFrom::Start(4096 * file_info.from_block as u64))?;
     for i in file_info.from_block..file_info.to_block {
-        if i == blocks {//last block is not always 4096 so we resizing the vector and reading exactly as much as left
+        if i == blocks {    //  last block is not always 4096 so we resizing the vector and reading exactly as much as left
             if last_block_size == 0 {
                 break;
             }
@@ -365,8 +308,63 @@ fn share_to_peer(
     Ok(())
 }
 
-///Fill the HashMap of peer and his file size
-fn get_fsize_on_each_peer(
+///Process first query which is get file size or start download a file
+fn handle_first_share_request(
+    shared: HashMap<String, PathBuf>,
+    request: FirstRequest,
+    mut stream: TcpStream,
+) -> Option<(BlockInfo, String, u64, TcpStream)> {
+    let asked_filename: String = request.filename;
+    match request.action { // Process the request
+        FileSizeorInfo::Size => {   // The other guy wants file size
+            let answ: AnswerToFirstRequest;
+            if shared.contains_key(&asked_filename) == false {  //  If we do not sharing this file right now
+                answ = AnswerToFirstRequest {
+                    filename: asked_filename.clone(),
+                    answer: FileInfo::NotExist,
+                };// We are setting the answer -- file does not exist
+                println!(
+                    "{} asked not existing file",
+                    stream.peer_addr().unwrap().ip()
+                );
+            } else {
+                let size_of_file: u64 = std::fs::metadata(shared.get(&asked_filename).unwrap())
+                    .unwrap()
+                    .len(); //get file size
+                answ = AnswerToFirstRequest {
+                    filename: asked_filename.clone(),
+                    answer: FileInfo::Size(size_of_file),
+                };  //  In the other case, we set the answer to file size
+                println!(
+                    "{} asked size of {}",
+                    stream.peer_addr().unwrap().ip(),
+                    &asked_filename
+                );
+            }
+            let serialized = serde_json::to_string(&answ).unwrap();
+            stream.write_all(serialized.as_bytes()).unwrap();   //  Sending the answer
+            return None;
+        }
+        FileSizeorInfo::Info(info) => { //  If other daemon wants to start download
+            println!(
+                "Starting sharing a {} to {}",
+                &asked_filename,
+                stream.peer_addr().unwrap().ip()
+            );
+            return Some((
+                info,
+                asked_filename.clone(),
+                std::fs::metadata(shared.get(&asked_filename).unwrap())
+                    .unwrap()
+                    .len(),
+                stream,
+            ));
+        }
+    }
+}
+
+/// Fill a HashMap of peer and his file size
+fn get_fsizes(
     peer_list: Vec<SocketAddr>,
     file_name: String,
 ) -> io::Result<Vec<(SocketAddr, u64)>> {
@@ -400,10 +398,10 @@ fn get_fsize_on_each_peer(
             Ok(size) => {
                 let answer: AnswerToFirstRequest = serde_json::from_slice(&buf[..size])?;
                 match answer.answer {
-                    EnumAnswer::Size(file_size) => {//if daemon sharing a file, we pushing his ip and size to vec
+                    FileInfo::Size(file_size) => {//if daemon sharing a file, we pushing his ip and size to vec
                         peers.push((stream.peer_addr()?, file_size));
                     }
-                    EnumAnswer::NotExist => {//in other case our daemon says to scan the network again
+                    FileInfo::NotExist => {//in other case our daemon says to scan the network again
                         if refresh {
                             println!("That peer doesn't share a file! Please refresh list of files with scan!");
                             refresh = false;
@@ -420,15 +418,15 @@ fn get_fsize_on_each_peer(
             }
         }
     }
-    Ok(peers)// returning the vector with daemons addresses and there's file sizes
+    Ok(peers)   // returning vector with daemons addresses and file sizes
 }
 
 ///Leave the most used file size and peer
-fn remove_other_fsizes_in_vec(
+fn clear_fsizes(
     mut peers: Vec<(SocketAddr, u64)>,
 ) -> io::Result<Vec<(SocketAddr, u64)>> {
     let mut _max_peers: u16 = 1;
-    //Create the vector with a (FILE_SIZE, HOW_MANY_PEERS_SHARING_THIS_FILE_SIZE)
+    //Create a vector with (FILE_SIZE, HOW_MANY_PEERS_SHARING_THIS_FILE_SIZE)
     let mut fsize_count: Vec<(u64, u16)> = Vec::new();
     peers.iter().for_each(|(_, fsize)| {//counting them all
         let buffer_var = fsize_count.iter_mut().find(|(size, _)| *size == *fsize);
@@ -438,15 +436,15 @@ fn remove_other_fsizes_in_vec(
             buffer_var.unwrap().1 += 1;
         }
     });
-    //Choosing the most used, if they equal, selecting the last one
+    //Choosing the most used. And if they equal taking the last one
     let file_size = fsize_count
         .iter()
         .max_by(|(_, fcount), (_, scount)| fcount.cmp(scount))
         .unwrap()
         .0;
 
-    peers.retain(|(_, size)| *size == file_size); // removes peers with other file size
-    //This is the power iterators of RUST
+    peers.retain(|(_, size)| *size == file_size); // Remove peers with other file sizes
+
     Ok(peers)
 }
 
@@ -480,36 +478,34 @@ fn fill_block_watcher(
     Ok(blocks_watcher)
 }
 
-//Still need to refactor this func
-//Send the download file request to other daemons
+//Sending download file request to other daemons
 fn download_request(
     file_name: String,
     file_path: PathBuf,
     available: Vec<SocketAddr>,
     downloading: Arc<Mutex<Vec<String>>>,
 ) -> io::Result<()> {
-    //Getting the available peer which sharing file
-    let peers = get_fsize_on_each_peer(available, file_name.clone()).unwrap();
-    //Leaving peers which sharing the moust popular file
-    let mut peers = remove_other_fsizes_in_vec(peers).unwrap();
+    //Getting the available peer which share file
+    let peers = get_fsizes(available, file_name.clone()).unwrap();
+    //Leaving peers which sharing the most popular file
+    let mut peers = clear_fsizes(peers).unwrap();
 
     let file_size = peers.get(0).unwrap().1;
     let peers_count = peers.len() as u32;
 
     let blocks = (file_size / 4096) as u32;
-    let file_size: u64 = file_size;
-    //Oh damn, DownloadGuard would be useful in here
+    //DownloadGuard would be useful here
     downloading.lock().unwrap().push(file_name.clone());
 
-    let pool: ThreadPool;
-    //We tracking the downloading file status in watcher
+    //We are tracking a downloading file status into the watcher
     let blocks_watcher: Arc<Mutex<HashMap<(u32, u32), bool>>> =
         fill_block_watcher(blocks, peers_count).unwrap();
 
-    pool = ThreadPool::new(blocks_watcher.lock().unwrap().len());
+    let pool = ThreadPool::new(blocks_watcher.lock().unwrap().len());
 
     let mut interrupted = false;
 
+    //
     while blocks_watcher
         .lock()
         .unwrap()
@@ -519,7 +515,7 @@ fn download_request(
     {
         let block_lines = blocks_watcher.lock().unwrap().clone();
         let mut i = 0;
-        let mut del_i: usize = 0;
+        let mut del_i: usize = 0;   //For deleting failed peers
         for ((fblock, lblock), done) in block_lines {
             if done == false {
                 if interrupted {
@@ -530,7 +526,7 @@ fn download_request(
                 }
                 let file_info = FirstRequest {
                     filename: file_name.clone(),
-                    action: FileSizeorInfo::Info(FileInfo {
+                    action: FileSizeorInfo::Info(BlockInfo {
                         from_block: fblock,
                         to_block: lblock,
                     }),
@@ -560,7 +556,8 @@ fn download_request(
             }
             del_i += 1;
         }
-        pool.join();//Waiting till every thread is ended
+
+        pool.join();    //Waiting till every thread will end
         if blocks_watcher
             .lock()
             .unwrap()
@@ -575,14 +572,14 @@ fn download_request(
     downloading
         .lock()
         .unwrap()
-        .retain(|line| *line != file_name);
+        .retain(|line| *line != file_name); //Delete from "downloading" downloaded file
     if blocks_watcher
         .lock()
         .unwrap()
         .values()
         .any(|done| *done == false)
-    {// If file is does not downloaded completely
-        fs::remove_file(&file_name)?;//Removing downloaded
+    {// If file does not downloaded completely
+        fs::remove_file(&file_name)?;   //Deleting already downloaded part
         eprintln!("Failed to download a {}", file_name);
     }
 
@@ -647,7 +644,7 @@ fn main() -> io::Result<()> {
     println!("Daemon: running");
     //Listener for client-daemon connection
     let listener = TcpListener::bind(("localhost", PORT_CLIENT_DAEMON))?;
-    //All about files daemon knowledge
+    //Contain maps of available to download and available to share files
     let data: Arc<Mutex<DataTemp>> = Arc::new(Mutex::new(DataTemp::new()));
     //HashMap which contains peers, that currently downloading a file from this daemon
     let transferring: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>> =
@@ -726,18 +723,18 @@ mod unit_tests {
     use super::*;
 
     #[test]
-    fn test_get_fsize_on_each_peer() {
+    fn test_get_fsizes() {
         let v: Vec<SocketAddr> = Vec::new();
         let name: String = String::from("Name");
 
-        match get_fsize_on_each_peer(v, name) {
+        match get_fsizes(v, name) {
             Ok(o) => println!("{:?}", o),
             Err(e) => panic!("{:?}", e),
         }
     }
 
     #[test]
-    fn test_get_fsize_on_each_peer_contain() {
+    fn test_get_fsizes_contain() {
         let mut v: Vec<SocketAddr> = Vec::new();
         v.push(SocketAddr::new(
             IpAddr::from(Ipv4Addr::new(224, 0, 0, 123)),
@@ -745,27 +742,27 @@ mod unit_tests {
         ));
         let name: String = String::from("Name");
 
-        match get_fsize_on_each_peer(v, name) {
+        match get_fsizes(v, name) {
             Ok(o) => println!("{:?}", o),
             Err(e) => panic!("{:?}", e),
         }
     }
 
     #[test]
-    fn test_remove_other_fsizes_in_vec_contain() {
+    fn test_clear_fsizes_contain() {
         let mut v: Vec<(SocketAddr, u64)> = Vec::new();
         let sa: SocketAddr = SocketAddr::new(IpAddr::from(Ipv4Addr::new(224, 0, 0, 123)), 1222);
 
         v.push((sa, 64));
 
-        match remove_other_fsizes_in_vec(v) {
+        match clear_fsizes(v) {
             Ok(o) => println!("{:?}", o),
             Err(e) => panic!("{:?}", e),
         }
     }
 
     #[test]
-    fn test_remove_other_fsizes_in_vec_two_16_one_32() {
+    fn test_clear_fsizes_two_16_one_32() {
         let _sock = SocketAddr::new(IpAddr::from(Ipv4Addr::new(0, 0, 0, 0)), 80);
         let v: Vec<(SocketAddr, u64)> = vec![
             (_sock.clone(), 16),
@@ -773,11 +770,11 @@ mod unit_tests {
             (_sock.clone(), 16),
         ];
         let res: Vec<(SocketAddr, u64)> = vec![(_sock.clone(), 16), (_sock.clone(), 16)];
-        assert_eq!(remove_other_fsizes_in_vec(v).unwrap(), res);
+        assert_eq!(clear_fsizes(v).unwrap(), res);
     }
 
     #[test]
-    fn test_remove_other_fsizes_in_vec_two_16_three_32() {
+    fn test_clear_fsizes_two_16_three_32() {
         let _sock = SocketAddr::new(IpAddr::from(Ipv4Addr::new(0, 0, 0, 0)), 80);
         let v: Vec<(SocketAddr, u64)> = vec![
             (_sock.clone(), 16),
@@ -791,19 +788,19 @@ mod unit_tests {
             (_sock.clone(), 32),
             (_sock.clone(), 32),
         ];
-        assert_eq!(remove_other_fsizes_in_vec(v).unwrap(), res);
+        assert_eq!(clear_fsizes(v).unwrap(), res);
     }
 
     #[test]
-    fn test_remove_other_fsizes_in_vec_one_16() {
+    fn test_clear_fsizes_one_16() {
         let _sock = SocketAddr::new(IpAddr::from(Ipv4Addr::new(0, 0, 0, 0)), 80);
         let v: Vec<(SocketAddr, u64)> = vec![(_sock.clone(), 16)];
         let res: Vec<(SocketAddr, u64)> = vec![(_sock.clone(), 16)];
-        assert_eq!(remove_other_fsizes_in_vec(v).unwrap(), res);
+        assert_eq!(clear_fsizes(v).unwrap(), res);
     }
 
     #[test]
-    fn test_remove_other_fsizes_in_vec_two_16_two_32() {
+    fn test_clear_fsizes_two_16_two_32() {
         let _sock = SocketAddr::new(IpAddr::from(Ipv4Addr::new(0, 0, 0, 0)), 80);
         let v: Vec<(SocketAddr, u64)> = vec![
             (_sock.clone(), 16),
@@ -812,15 +809,15 @@ mod unit_tests {
             (_sock.clone(), 32),
         ];
         let res: Vec<(SocketAddr, u64)> = vec![(_sock.clone(), 32), (_sock.clone(), 32)];
-        assert_eq!(remove_other_fsizes_in_vec(v).unwrap(), res);
+        assert_eq!(clear_fsizes(v).unwrap(), res);
     }
 
     #[test]
-    fn test_remove_other_fsizes_in_vec_one_16_one_32() {
+    fn test_clear_fsizes_one_16_one_32() {
         let _sock = SocketAddr::new(IpAddr::from(Ipv4Addr::new(0, 0, 0, 0)), 80);
         let v: Vec<(SocketAddr, u64)> = vec![(_sock.clone(), 16), (_sock.clone(), 32)];
         let res: Vec<(SocketAddr, u64)> = vec![(_sock.clone(), 32)];
-        assert_eq!(remove_other_fsizes_in_vec(v).unwrap(), res);
+        assert_eq!(clear_fsizes(v).unwrap(), res);
     }
 
     #[test]

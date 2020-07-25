@@ -39,20 +39,3 @@ struct FirstRequest             | Serialized request from daemon which want to g
 struct FileInfo                 | Store which blocks downloadable
 struct AnswerToFirstRequest     | Stores filename and answer to size request
 
-
-Daemon functions
----------------------------------------
-Function                        | What does this function do
---------------------------------|----------------------
-command_processor(...)          | Processing command from client
-get_this_daemon_ip(...)         | Getting IP of current daemon thread
-multicast_responder(...)        | Responds to multicast requests from other daemons
-multicast_receiver(...)         | Receives a response to a multicast from daemons
-share_responder(...)            | Processing queries from other daemons
-handle_first_share_request(...) | Process first query which is get file size or start download a file
-share_to_peer(...)              | Start sharing the file to other daemon
-get_fsize_on_each_peer(...)     | Fill the HashMap of peer and his file size
-remove_other_fsizes_in_vec(...) | Leave the most used file size and peer
-fill_block_watcher(...)         | Split up the file in blocks and peers
-download_request(...)           | Send the download file request to other daemons
-download_from_peer(...)         | Download a specific file blocks from peer
