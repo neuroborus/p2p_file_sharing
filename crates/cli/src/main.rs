@@ -1,9 +1,10 @@
 use p2p_core::*;
+use p2p_config::*;
 
 use clap::{App, Arg};
 
 fn main() -> io::Result<()> {
-    let mut stream = TcpStream::connect(("localhost", PORT_CLIENT_DAEMON)).unwrap();
+    let mut stream = TcpStream::connect((LOCALHOST, PORT_CLIENT_DAEMON)).unwrap();
     //Parsing arguments
     //share "file_path"
     //download "save_path" -fFileName (flag and save path in any order)

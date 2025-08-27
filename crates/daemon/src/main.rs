@@ -1,8 +1,9 @@
 use p2p_core::*;
+use p2p_config::*;
 
 #[cfg(windows)]
 pub fn bind_multicast(_addr: &Ipv4Addr, port: u16) -> io::Result<UdpSocket> {
-    UdpSocket::bind((Ipv4Addr::new(0, 0, 0, 0), port))
+    UdpSocket::bind((LOCAL_NETWORK, port))
 }
 #[cfg(unix)]
 pub fn bind_multicast(addr: &Ipv4Addr, port: u16) -> io::Result<UdpSocket> {
@@ -14,17 +15,17 @@ pub fn get_this_daemon_ip() -> io::Result<IpAddr> {
     let unique_number: u128 = rand::random();
     let self_ip: IpAddr;
     {
-        let local_network: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
-        let listener = bind_multicast(&ADDR_DAEMON_MULTICAST, GET_SELF_IP_PORT)?;
+        let local_network: Ipv4Addr = LOCAL_NETWORK;
+        let listener = bind_multicast(&DAEMON_MULTICAST_ADDR, PORT_SELF_IP)?;
         listener
-            .join_multicast_v4(&ADDR_DAEMON_MULTICAST, &local_network)
+            .join_multicast_v4(&DAEMON_MULTICAST_ADDR, &local_network)
             .unwrap();
         {
             let socket = UdpSocket::bind((local_network, 0)).unwrap();
             socket
                 .send_to(
                     unique_number.to_string().as_bytes(),
-                    (ADDR_DAEMON_MULTICAST, GET_SELF_IP_PORT),
+                    (DAEMON_MULTICAST_ADDR, PORT_SELF_IP),
                 )
                 .unwrap();
         }
@@ -109,10 +110,10 @@ fn command_processor(
             stream.write_all(serialized.as_bytes()).unwrap();//answer to client
         }
         Command::Scan => {
-            let socket = UdpSocket::bind((Ipv4Addr::new(0, 0, 0, 0), 0))?;
+            let socket = UdpSocket::bind((LOCAL_NETWORK, 0))?;
             data.available.clear(); // Clear list of available files to download
                                     //the list will be refreshed in multicast_receiver
-            socket.send_to(SCAN_REQUEST, (ADDR_DAEMON_MULTICAST, PORT_MULTICAST))?;
+            socket.send_to(SCAN_REQUEST, (DAEMON_MULTICAST_ADDR, PORT_MULTICAST))?;
             let answ = Answer::Ok;
             let serialized = serde_json::to_string(&answ)?;
             stream.write_all(serialized.as_bytes()).unwrap();
@@ -143,8 +144,8 @@ fn command_processor(
 fn multicast_responder(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
     let this_daemon_ip = get_this_daemon_ip().unwrap();
 
-    let listener = bind_multicast(&ADDR_DAEMON_MULTICAST, PORT_MULTICAST)?;
-    listener.join_multicast_v4(&ADDR_DAEMON_MULTICAST, &Ipv4Addr::new(0, 0, 0, 0))?;
+    let listener = bind_multicast(&DAEMON_MULTICAST_ADDR, PORT_MULTICAST)?;
+    listener.join_multicast_v4(&DAEMON_MULTICAST_ADDR, &LOCAL_NETWORK)?;
 
     let mut shared: Vec<String>;
     let mut buf = vec![0; 4096];
@@ -170,7 +171,7 @@ fn multicast_responder(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
 
 //Function that receiving answer from other daemons to refresh our "available files to download" list
 fn multicast_receiver(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
-    let listener = TcpListener::bind((Ipv4Addr::new(0, 0, 0, 0), PORT_SCAN_TCP))?;
+    let listener = TcpListener::bind((LOCAL_NETWORK, PORT_SCAN_TCP))?;
     //Get names of files with tcp (his shared - your available)
     let mut buf = vec![0 as u8; 4096];
     for stream in listener.incoming() {
@@ -215,7 +216,7 @@ fn share_responder(
     transferring: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>>,
     data: Arc<Mutex<DataTemp>>,
 ) -> io::Result<()> {
-    let listener = TcpListener::bind((Ipv4Addr::new(0, 0, 0, 0), PORT_FILE_SHARE))?;
+    let listener = TcpListener::bind((LOCAL_NETWORK, PORT_FILE_SHARE))?;
 
     for stream in listener.incoming() {
         match stream {
@@ -643,7 +644,7 @@ fn download_from_peer(
 fn main() -> io::Result<()> {
     println!("Daemon: running");
     //Listener for client-daemon connection
-    let listener = TcpListener::bind(("localhost", PORT_CLIENT_DAEMON))?;
+    let listener = TcpListener::bind((LOCALHOST, PORT_CLIENT_DAEMON))?;
     //Contain maps of available to download and available to share files
     let data: Arc<Mutex<DataTemp>> = Arc::new(Mutex::new(DataTemp::new()));
     //HashMap which contains peers, that currently downloading a file from this daemon
@@ -763,7 +764,7 @@ mod unit_tests {
 
     #[test]
     fn test_clear_fsizes_two_16_one_32() {
-        let _sock = SocketAddr::new(IpAddr::from(Ipv4Addr::new(0, 0, 0, 0)), 80);
+        let _sock = SocketAddr::new(IpAddr::from(LOCAL_NETWORK), 80);
         let v: Vec<(SocketAddr, u64)> = vec![
             (_sock.clone(), 16),
             (_sock.clone(), 32),
@@ -775,7 +776,7 @@ mod unit_tests {
 
     #[test]
     fn test_clear_fsizes_two_16_three_32() {
-        let _sock = SocketAddr::new(IpAddr::from(Ipv4Addr::new(0, 0, 0, 0)), 80);
+        let _sock = SocketAddr::new(IpAddr::from(LOCAL_NETWORK), 80);
         let v: Vec<(SocketAddr, u64)> = vec![
             (_sock.clone(), 16),
             (_sock.clone(), 16),
@@ -793,7 +794,7 @@ mod unit_tests {
 
     #[test]
     fn test_clear_fsizes_one_16() {
-        let _sock = SocketAddr::new(IpAddr::from(Ipv4Addr::new(0, 0, 0, 0)), 80);
+        let _sock = SocketAddr::new(IpAddr::from(LOCAL_NETWORK), 80);
         let v: Vec<(SocketAddr, u64)> = vec![(_sock.clone(), 16)];
         let res: Vec<(SocketAddr, u64)> = vec![(_sock.clone(), 16)];
         assert_eq!(clear_fsizes(v).unwrap(), res);
@@ -801,7 +802,7 @@ mod unit_tests {
 
     #[test]
     fn test_clear_fsizes_two_16_two_32() {
-        let _sock = SocketAddr::new(IpAddr::from(Ipv4Addr::new(0, 0, 0, 0)), 80);
+        let _sock = SocketAddr::new(IpAddr::from(LOCAL_NETWORK), 80);
         let v: Vec<(SocketAddr, u64)> = vec![
             (_sock.clone(), 16),
             (_sock.clone(), 16),
@@ -814,7 +815,7 @@ mod unit_tests {
 
     #[test]
     fn test_clear_fsizes_one_16_one_32() {
-        let _sock = SocketAddr::new(IpAddr::from(Ipv4Addr::new(0, 0, 0, 0)), 80);
+        let _sock = SocketAddr::new(IpAddr::from(LOCAL_NETWORK), 80);
         let v: Vec<(SocketAddr, u64)> = vec![(_sock.clone(), 16), (_sock.clone(), 32)];
         let res: Vec<(SocketAddr, u64)> = vec![(_sock.clone(), 32)];
         assert_eq!(clear_fsizes(v).unwrap(), res);
@@ -927,9 +928,9 @@ mod func_tests {
 
     #[test]
     fn test_share() {
-        let _listener = TcpListener::bind(("localhost", PORT_CLIENT_DAEMON + 1)).unwrap();
+        let _listener = TcpListener::bind((LOCALHOST, PORT_CLIENT_DAEMON + 1)).unwrap();
         //
-        let mut stream = TcpStream::connect(("localhost", PORT_CLIENT_DAEMON + 1)).unwrap();
+        let mut stream = TcpStream::connect((LOCALHOST, PORT_CLIENT_DAEMON + 1)).unwrap();
         let com = Command::Share {
             file_path: PathBuf::from("fake\\path\\FILE.dat"),
         };
@@ -963,9 +964,9 @@ mod func_tests {
 
     #[test]
     fn test_download() {
-        let _listener = TcpListener::bind(("localhost", PORT_CLIENT_DAEMON + 2)).unwrap();
+        let _listener = TcpListener::bind((LOCALHOST, PORT_CLIENT_DAEMON + 2)).unwrap();
         //
-        let mut stream = TcpStream::connect(("localhost", PORT_CLIENT_DAEMON + 2)).unwrap();
+        let mut stream = TcpStream::connect((LOCALHOST, PORT_CLIENT_DAEMON + 2)).unwrap();
         let com = Command::Download {
             file_name: String::from("FILE.dat"),
             save_path: PathBuf::from("fake\\path\\"),
@@ -994,9 +995,9 @@ mod func_tests {
 
     #[test]
     fn test_scan() {
-        let _listener = TcpListener::bind(("localhost", PORT_CLIENT_DAEMON + 3)).unwrap();
+        let _listener = TcpListener::bind((LOCALHOST, PORT_CLIENT_DAEMON + 3)).unwrap();
         //
-        let mut stream = TcpStream::connect(("localhost", PORT_CLIENT_DAEMON + 3)).unwrap();
+        let mut stream = TcpStream::connect((LOCALHOST, PORT_CLIENT_DAEMON + 3)).unwrap();
         let com = Command::Scan;
         let stream_tmp = _listener.accept().unwrap().0;
         let dat: Arc<Mutex<DataTemp>> = Arc::new(Mutex::new(DataTemp::new()));
@@ -1020,9 +1021,9 @@ mod func_tests {
 
     #[test]
     fn test_ls() {
-        let _listener = TcpListener::bind(("localhost", PORT_CLIENT_DAEMON + 4)).unwrap();
+        let _listener = TcpListener::bind((LOCALHOST, PORT_CLIENT_DAEMON + 4)).unwrap();
         //
-        let mut stream = TcpStream::connect(("localhost", PORT_CLIENT_DAEMON + 4)).unwrap();
+        let mut stream = TcpStream::connect((LOCALHOST, PORT_CLIENT_DAEMON + 4)).unwrap();
         let com = Command::Ls;
         let stream_tmp = _listener.accept().unwrap().0;
         let dat: Arc<Mutex<DataTemp>> = Arc::new(Mutex::new(DataTemp::new()));
@@ -1056,9 +1057,9 @@ mod func_tests {
 
     #[test]
     fn test_status() {
-        let _listener = TcpListener::bind(("localhost", PORT_CLIENT_DAEMON + 5)).unwrap();
+        let _listener = TcpListener::bind((LOCALHOST, PORT_CLIENT_DAEMON + 5)).unwrap();
         //
-        let mut stream = TcpStream::connect(("localhost", PORT_CLIENT_DAEMON + 5)).unwrap();
+        let mut stream = TcpStream::connect((LOCALHOST, PORT_CLIENT_DAEMON + 5)).unwrap();
         let com = Command::Status;
         let stream_tmp = _listener.accept().unwrap().0;
         let dat: Arc<Mutex<DataTemp>> = Arc::new(Mutex::new(DataTemp::new()));

@@ -18,14 +18,6 @@ pub use std::{
 };
 pub use threadpool::ThreadPool;
 
-pub const ADDR_DAEMON_MULTICAST: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 123);
-pub const PORT_MULTICAST: u16 = 7645;
-pub const PORT_CLIENT_DAEMON: u16 = 7646;
-pub const PORT_SCAN_TCP: u16 = 7647;
-pub const PORT_FILE_SHARE: u16 = 7648;
-pub const GET_SELF_IP_PORT: u16 = 60005;
-pub const SCAN_REQUEST: &[u8; 20] = b"UDP_Scan_Request_P2P";
-
 #[derive(Serialize, Deserialize, Debug)]
 ///A command that is serialized in the client and sent to the daemon
 pub enum Command {
