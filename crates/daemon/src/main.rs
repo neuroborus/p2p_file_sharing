@@ -1,4 +1,4 @@
-use lib::*;
+use p2p_core::*;
 
 #[cfg(windows)]
 pub fn bind_multicast(_addr: &Ipv4Addr, port: u16) -> io::Result<UdpSocket> {
@@ -11,7 +11,7 @@ pub fn bind_multicast(addr: &Ipv4Addr, port: u16) -> io::Result<UdpSocket> {
 
 ///Getting IP of current daemon thread
 pub fn get_this_daemon_ip() -> io::Result<IpAddr> {
-    let unique_number = rand::thread_rng().gen::<u128>();
+    let unique_number: u128 = rand::random();
     let self_ip: IpAddr;
     {
         let local_network: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);

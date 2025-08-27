@@ -1,22 +1,12 @@
-[package]
-name = "p2p"
-version = "0.1.0"
-authors = ["Mikhail Hasso <mihasso@protonmail.com>"]
-edition = "2018"
+[workspace]
+members = ["crates/core", "crates/daemon", "crates/cli"]
 
-[lib]
-name = "lib"
-path = "src/lib.rs"
+[profile.release]
+lto = "thin"
+codegen-units = 1
+resolver = "3"   # use the 2024 resolver
 
-[[bin]]
-name = "daemon"
-path = "src/daemon.rs"
-
-[[bin]]
-name = "client"
-path = "src/client.rs"
-
-[dependencies]
+[workspace.dependencies]
 clap = "2.33.0"
 serde = "1.0.101"
 serde_json = "1.0.41"

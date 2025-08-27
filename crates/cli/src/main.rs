@@ -1,4 +1,4 @@
-use lib::*;
+use p2p_core::*;
 
 use clap::{App, Arg};
 

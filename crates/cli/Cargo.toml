@@ -1,0 +1,12 @@
+[package]
+name = "p2p-cli"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+
+[dependencies]
+p2p-core = { path = "../core" }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_derive = { workspace = true }
