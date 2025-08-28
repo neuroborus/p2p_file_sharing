@@ -191,7 +191,16 @@ fn multicast_responder(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
                 "responder: msg first20={:?}",
                 &message[..message.len().min(20)]
             ));
-            let mut stream = TcpStream::connect((remote_addr_ip, PORT_SCAN_TCP))?;
+            let mut stream = match TcpStream::connect((remote_addr_ip, PORT_SCAN_TCP)) {
+                Ok(s) => s,
+                Err(e) => {
+                    LOGGER.error(format!(
+                        "responder: connect to {}:{} failed: {}",
+                        remote_addr_ip, PORT_SCAN_TCP, e
+                    ));
+                    continue; // слушаем дальше
+                }
+            };
 
             if message == SCAN_REQUEST {
                 LOGGER.debug(format!(
