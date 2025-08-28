@@ -59,16 +59,16 @@ pub fn get_this_daemon_ip() -> io::Result<IpAddr> {
     Ok(self_ip)
 }
 
-/// Processing a command from client
-fn command_processor(
-    com: &Action, // Command itself
+/// Processing an action from client
+fn action_processor(
+    action: &Action, // Command itself
     mut stream: TcpStream,
     mut data: MutexGuard<DataTemp>, // Contain shared & available files
     transferring: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>>, /* HashMap for refreshing status
                                      * about transferring files */
     downloading: Arc<Mutex<Vec<String>>>, // Vector for refreshing status about downloading files
 ) -> io::Result<()> {
-    match com {
+    match action {
         Action::Share { file_path: f_path } => {
             let name: String = String::from(f_path.file_name().unwrap().to_string_lossy());
             data.shared.insert(name, f_path.clone()); // Name - path
@@ -833,11 +833,11 @@ fn main() -> io::Result<()> {
                 /////////////
                 match stream.read(&mut buf) {
                     Ok(size) => {
-                        // Now the daemon does not crash when the command is entered incorrectly
-                        let com: Action;
+                        // Now the daemon does not crash when the action is entered incorrectly
+                        let action: Action;
                         match serde_json::from_slice(&buf[..size]) {
                             Ok(c) => {
-                                com = c;
+                                action = c;
                             }
                             Err(_) => {
                                 LOGGER.info("Client made a mistake!");
@@ -848,15 +848,15 @@ fn main() -> io::Result<()> {
 
                         // println!("{:?}", *data);
                         let dat = data.clone();
-                        let com_transfer = transferring.clone();
-                        let com_download = downloading.clone();
+                        let transfer = transferring.clone();
+                        let download = downloading.clone();
                         thread::spawn(move || {
-                            command_processor(
-                                &com,
+                            action_processor(
+                                &action,
                                 stream,
                                 dat.lock().unwrap(),
-                                com_transfer,
-                                com_download,
+                                transfer,
+                                download,
                             )
                             .unwrap();
                         });
@@ -1088,7 +1088,7 @@ mod func_tests {
         let _listener = TcpListener::bind((LOCALHOST, PORT_CLIENT_DAEMON + 1)).unwrap();
         //
         let mut stream = TcpStream::connect((LOCALHOST, PORT_CLIENT_DAEMON + 1)).unwrap();
-        let com = Action::Share {
+        let share = Action::Share {
             file_path: PathBuf::from("fake\\path\\FILE.dat"),
         };
         let stream_tmp = _listener.accept().unwrap().0;
@@ -1097,7 +1097,7 @@ mod func_tests {
         let tr: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>> = Arc::new(Mutex::new(HashMap::new()));
         let dow: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 
-        command_processor(&com, stream_tmp, dat.lock().unwrap(), tr, dow).unwrap();
+        action_processor(&share, stream_tmp, dat.lock().unwrap(), tr, dow).unwrap();
 
         let mut buf = vec![0 as u8; 4096];
         match stream.read(&mut buf) {
@@ -1124,7 +1124,7 @@ mod func_tests {
         let _listener = TcpListener::bind((LOCALHOST, PORT_CLIENT_DAEMON + 2)).unwrap();
         //
         let mut stream = TcpStream::connect((LOCALHOST, PORT_CLIENT_DAEMON + 2)).unwrap();
-        let com = Action::Download {
+        let download = Action::Download {
             file_name: String::from("FILE.dat"),
             save_path: PathBuf::from("fake\\path\\"),
             wait: false,
@@ -1135,7 +1135,7 @@ mod func_tests {
         let tr: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>> = Arc::new(Mutex::new(HashMap::new()));
         let dow: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 
-        command_processor(&com, stream_tmp, dat.lock().unwrap(), tr, dow).unwrap();
+        action_processor(&download, stream_tmp, dat.lock().unwrap(), tr, dow).unwrap();
 
         let mut buf = vec![0 as u8; 4096];
         match stream.read(&mut buf) {
@@ -1155,14 +1155,14 @@ mod func_tests {
         let _listener = TcpListener::bind((LOCALHOST, PORT_CLIENT_DAEMON + 3)).unwrap();
         //
         let mut stream = TcpStream::connect((LOCALHOST, PORT_CLIENT_DAEMON + 3)).unwrap();
-        let com = Action::Scan;
+        let scan = Action::Scan;
         let stream_tmp = _listener.accept().unwrap().0;
         let dat: Arc<Mutex<DataTemp>> = Arc::new(Mutex::new(DataTemp::new()));
 
         let tr: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>> = Arc::new(Mutex::new(HashMap::new()));
         let dow: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 
-        command_processor(&com, stream_tmp, dat.lock().unwrap(), tr, dow).unwrap();
+        action_processor(&scan, stream_tmp, dat.lock().unwrap(), tr, dow).unwrap();
 
         let mut buf = vec![0 as u8; 4096];
         match stream.read(&mut buf) {
@@ -1181,7 +1181,7 @@ mod func_tests {
         let _listener = TcpListener::bind((LOCALHOST, PORT_CLIENT_DAEMON + 4)).unwrap();
         //
         let mut stream = TcpStream::connect((LOCALHOST, PORT_CLIENT_DAEMON + 4)).unwrap();
-        let com = Action::Ls;
+        let ls = Action::Ls;
         let stream_tmp = _listener.accept().unwrap().0;
         let dat: Arc<Mutex<DataTemp>> = Arc::new(Mutex::new(DataTemp::new()));
 
@@ -1193,7 +1193,7 @@ mod func_tests {
         let tr: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>> = Arc::new(Mutex::new(HashMap::new()));
         let dow: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 
-        command_processor(&com, stream_tmp, dat.lock().unwrap(), tr, dow).unwrap();
+        action_processor(&ls, stream_tmp, dat.lock().unwrap(), tr, dow).unwrap();
 
         let mut buf = vec![0 as u8; 4096];
         match stream.read(&mut buf) {
@@ -1217,7 +1217,7 @@ mod func_tests {
         let _listener = TcpListener::bind((LOCALHOST, PORT_CLIENT_DAEMON + 5)).unwrap();
         //
         let mut stream = TcpStream::connect((LOCALHOST, PORT_CLIENT_DAEMON + 5)).unwrap();
-        let com = Action::Status;
+        let status = Action::Status;
         let stream_tmp = _listener.accept().unwrap().0;
         let dat: Arc<Mutex<DataTemp>> = Arc::new(Mutex::new(DataTemp::new()));
 
@@ -1233,7 +1233,7 @@ mod func_tests {
 
         let dow: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 
-        command_processor(&com, stream_tmp, dat.lock().unwrap(), tr, dow).unwrap();
+        action_processor(&status, stream_tmp, dat.lock().unwrap(), tr, dow).unwrap();
 
         let mut buf = vec![0 as u8; 4096];
         match stream.read(&mut buf) {

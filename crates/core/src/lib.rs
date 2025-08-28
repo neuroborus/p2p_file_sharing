@@ -14,7 +14,7 @@ use serde_derive::*;
 pub use threadpool::ThreadPool;
 
 #[derive(Serialize, Deserialize, Debug)]
-/// A command that is serialized in the client and sent to the daemon
+/// An action that is serialized in the client and sent to the daemon
 pub enum Action {
     // Client -> Daemon
     /// Share a file with a network
@@ -34,7 +34,7 @@ pub enum Action {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
-/// The response to the command is serialized in the daemon and sent to the
+/// The response to the action is serialized in the daemon and sent to the
 /// client
 pub enum Answer {
     // Daemon -> Client
