@@ -15,7 +15,7 @@ pub use threadpool::ThreadPool;
 
 #[derive(Serialize, Deserialize, Debug)]
 /// A command that is serialized in the client and sent to the daemon
-pub enum Command {
+pub enum Action {
     // Client -> Daemon
     /// Share a file with a network
     Share { file_path: PathBuf },
