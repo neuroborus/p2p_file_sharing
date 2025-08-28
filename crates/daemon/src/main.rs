@@ -1,5 +1,8 @@
-use p2p_core::*;
 use p2p_config::*;
+use p2p_core::*;
+use p2p_utils::logger::Logger;
+
+static LOGGER: Logger = Logger::verbose("Daemon");
 
 #[cfg(windows)]
 pub fn bind_multicast(_addr: &Ipv4Addr, port: u16) -> io::Result<UdpSocket> {
@@ -10,18 +13,17 @@ pub fn bind_multicast(addr: &Ipv4Addr, port: u16) -> io::Result<UdpSocket> {
     UdpSocket::bind((*addr, port))
 }
 
-///Getting IP of current daemon thread
+/// Getting IP of current daemon thread
 pub fn get_this_daemon_ip() -> io::Result<IpAddr> {
     let unique_number: u128 = rand::random();
     let self_ip: IpAddr;
     {
-        let local_network: Ipv4Addr = LOCAL_NETWORK;
         let listener = bind_multicast(&DAEMON_MULTICAST_ADDR, PORT_SELF_IP)?;
         listener
-            .join_multicast_v4(&DAEMON_MULTICAST_ADDR, &local_network)
+            .join_multicast_v4(&DAEMON_MULTICAST_ADDR, &LOCAL_NETWORK)
             .unwrap();
         {
-            let socket = UdpSocket::bind((local_network, 0)).unwrap();
+            let socket = UdpSocket::bind((LOCAL_NETWORK, 0)).unwrap();
             socket
                 .send_to(
                     unique_number.to_string().as_bytes(),
@@ -41,23 +43,24 @@ pub fn get_this_daemon_ip() -> io::Result<IpAddr> {
             continue;
         }
     }
-    println!("Daemon IP in local network is {}", self_ip);
+
+    LOGGER.info(&format!("Daemon IP in the local network is {self_ip}"));
     Ok(self_ip)
 }
 
-///Processing a command from client
+/// Processing a command from client
 fn command_processor(
-    com: &Command,  //command itself
+    com: &Command, // Command itself
     mut stream: TcpStream,
-    mut data: MutexGuard<DataTemp>, //  Contain shared & available files
-    transferring: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>>, //  HashMap for refreshing status about transferring files
-    downloading: Arc<Mutex<Vec<String>>>,   // Vector for refreshing status about downloading files
+    mut data: MutexGuard<DataTemp>, // Contain shared & available files
+    transferring: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>>, /* HashMap for refreshing status
+                                     * about transferring files */
+    downloading: Arc<Mutex<Vec<String>>>, // Vector for refreshing status about downloading files
 ) -> io::Result<()> {
     match com {
         Command::Share { file_path: f_path } => {
-
             let name: String = String::from(f_path.file_name().unwrap().to_string_lossy());
-            data.shared.insert(name, f_path.clone()); //    Name - path
+            data.shared.insert(name, f_path.clone()); // Name - path
 
             let answ = Answer::Ok;
             let serialized = serde_json::to_string(&answ)?;
@@ -70,16 +73,20 @@ fn command_processor(
         } => {
             let answ: Answer;
 
-            if data.available.contains_key(f_name) == false {   // If no one share this file
+            if data.available.contains_key(f_name) == false {
+                // If no one share this file
                 answ = Answer::Err(String::from("File is not available to download!"));
-            } else if data.shared.contains_key(f_name) == true {    //If we already share this file
+            } else if data.shared.contains_key(f_name) == true {
+                // If we already share this file
                 answ = Answer::Err(String::from("You are already sharing this file!"));
             } else {
                 answ = Answer::Ok;
             }
 
             match answ {
-                Answer::Ok => {//If everything is ok we starting a thread with download request to other daemons
+                Answer::Ok => {
+                    // If everything is ok we starting a thread with download request to other
+                    // daemons
                     let available_list = data.available.get(f_name).unwrap().clone();
                     let filename = f_name.clone();
                     let savepath = s_path.clone();
@@ -92,27 +99,27 @@ fn command_processor(
                         ) {
                             Ok(_) => (),
                             Err(e) => {
-                                eprintln!(
-                                    "Failed to download a {}, an error occured {}",
-                                    filename, e
-                                );
+                                LOGGER.error(&format!(
+                                    "Failed to download a {filename}, an error occured {e}"
+                                ));
                             }
                         }
                         ()
                     });
-                    if *wat == true {//Waiting for ending of file downloading
+                    if *wat == true {
+                        // Waiting for ending of file downloading
                         file_thread.join().unwrap();
                     }
                 }
                 _ => {}
             }
             let serialized = serde_json::to_string(&answ)?;
-            stream.write_all(serialized.as_bytes()).unwrap();//answer to client
+            stream.write_all(serialized.as_bytes()).unwrap(); // Answer to client
         }
         Command::Scan => {
             let socket = UdpSocket::bind((LOCAL_NETWORK, 0))?;
             data.available.clear(); // Clear list of available files to download
-                                    //the list will be refreshed in multicast_receiver
+            // the list will be refreshed in multicast_receiver
             socket.send_to(SCAN_REQUEST, (DAEMON_MULTICAST_ADDR, PORT_MULTICAST))?;
             let answ = Answer::Ok;
             let serialized = serde_json::to_string(&answ)?;
@@ -126,7 +133,7 @@ fn command_processor(
             stream.write_all(serialized.as_bytes()).unwrap();
         }
         Command::Status => {
-            //transferring & shared
+            // Transferring & shared
             let answ: Answer = Answer::Status {
                 transferring_map: transferring.lock().unwrap().clone(),
                 shared_map: data.shared.clone(),
@@ -140,7 +147,7 @@ fn command_processor(
     Ok(())
 }
 
-///Responds to multicast requests from other daemons
+/// Responds to multicast requests from other daemons
 fn multicast_responder(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
     let this_daemon_ip = get_this_daemon_ip().unwrap();
 
@@ -151,39 +158,42 @@ fn multicast_responder(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
     let mut buf = vec![0; 4096];
     loop {
         let (len, remote_addr) = listener.recv_from(&mut buf)?;
-        if remote_addr.ip() != this_daemon_ip {
-            //check if that's not our daemon, then we will respond
+        let remote_addr_ip = remote_addr.ip(); // TODO: let if
+        if remote_addr_ip != this_daemon_ip {
+            // Check if that's not our daemon, then we will respond
             let message = &buf[..len];
-            let mut stream = TcpStream::connect((remote_addr.ip(), PORT_SCAN_TCP))?;
+            let mut stream = TcpStream::connect((remote_addr_ip, PORT_SCAN_TCP))?;
 
             if message == SCAN_REQUEST {
+                LOGGER.info(format!("{remote_addr_ip} asked for scan"));
                 let dat = data.lock().unwrap();
                 shared = Vec::new();
                 for key in dat.shared.keys() {
                     shared.push(key.clone());
                 }
                 let serialized = serde_json::to_string(&shared)?;
-                stream.write_all(serialized.as_bytes()).unwrap(); //Send our "shared" files list
+                stream.write_all(serialized.as_bytes()).unwrap(); // Send our "shared" files list
             }
         }
     }
 }
 
-//Function that receiving answer from other daemons to refresh our "available files to download" list
+// Function that receiving answer from other daemons to refresh our "available
+// files to download" list
 fn multicast_receiver(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
     let listener = TcpListener::bind((LOCAL_NETWORK, PORT_SCAN_TCP))?;
-    //Get names of files with tcp (his shared - your available)
+    // Get names of files with tcp (his shared - your available)
     let mut buf = vec![0 as u8; 4096];
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => {
                 match stream.read(&mut buf) {
                     Ok(size) => {
-                        //Get List of names
+                        // Get List of names
                         let names: Vec<String> = serde_json::from_slice(&buf[..size])?;
                         for name in names.into_iter() {
                             if data.lock().unwrap().available.contains_key(&name) {
-                                //If file already exist just update Vec of IP
+                                // If file already exist just update Vec of IP
                                 data.lock()
                                     .unwrap()
                                     .available
@@ -191,7 +201,7 @@ fn multicast_receiver(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
                                     .unwrap()
                                     .push(stream.peer_addr().unwrap());
                             } else {
-                                //In another case - adding file with first IP that share it
+                                // In another case - adding file with first IP that share it
                                 let mut v: Vec<SocketAddr> = Vec::new();
                                 v.push(stream.peer_addr().unwrap());
                                 data.lock().unwrap().available.insert(name, v);
@@ -199,19 +209,19 @@ fn multicast_receiver(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
                         }
                     }
                     Err(e) => {
-                        eprintln!("An error occurred, {}", e);
+                        LOGGER.error(e);
                     }
                 }
             }
             Err(e) => {
-                eprintln!("Error: {}", e);
+                LOGGER.error(e);
             }
         }
     }
     Ok(())
 }
 
-//Function to process the other daemon "download file" requests
+// Function to process the other daemon "download file" requests
 fn share_responder(
     transferring: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>>,
     data: Arc<Mutex<DataTemp>>,
@@ -223,25 +233,29 @@ fn share_responder(
             Ok(mut _stream) => {
                 let peer_transferring = transferring.clone();
                 let shared = data.lock().unwrap().shared.clone();
-                thread::spawn(move || {//giving a response for sharing a file with other daemon
+                thread::spawn(move || {
+                    // Giving a response for sharing a file with the other daemon
                     let peer = _stream.peer_addr().unwrap().ip();
                     match transfer_to_peer(_stream, peer_transferring, shared) {
                         Ok(_) => (),
                         Err(e) => {
-                            eprintln!("Interrupted sharing to {}, an error occured {}", peer, e);
+                            LOGGER.error(&format!(
+                                "Interrupted sharing to {} -> an error occured: {}",
+                                peer, e
+                            ));
                         }
                     }
                 });
             }
             Err(e) => {
-                eprintln!("Error: {}", e);
+                LOGGER.error(e);
             }
         }
     }
     Ok(())
 }
 
-///Start sharing the file to other daemon
+/// Start sharing the file to other daemon
 fn transfer_to_peer(
     mut stream: TcpStream,
     transferring: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>>,
@@ -250,7 +264,7 @@ fn transfer_to_peer(
     let mut buf = vec![0; 4096];
 
     stream.set_read_timeout(Some(Duration::new(45, 0)))?;
-    stream.set_write_timeout(Some(Duration::new(45, 0)))?;// setting the timeouts
+    stream.set_write_timeout(Some(Duration::new(45, 0)))?; // setting the timeouts
 
     let file_info: BlockInfo;
     let file_name: String;
@@ -259,7 +273,8 @@ fn transfer_to_peer(
     match stream.read(&mut buf) {
         Ok(size) => {
             let request: FirstRequest = serde_json::from_slice(&buf[..size])?;
-            match handle_first_share_request(shared, request, stream) {//processing the first request
+            match handle_first_share_request(shared, request, stream) {
+                // processing the first request
                 Some((info, name, size, s)) => {
                     file_info = info;
                     file_name = name;
@@ -267,12 +282,12 @@ fn transfer_to_peer(
                     stream = s;
                 }
                 None => {
-                    return Ok(());// if other daemon wanted a file size we ended here
+                    return Ok(()); // if other daemon wanted a file size we ended here
                 }
             }
         }
         Err(e) => {
-            eprintln!("An error occurred, {}", e);
+            LOGGER.error(&e);
             return Err(e);
         }
     }
@@ -296,7 +311,9 @@ fn transfer_to_peer(
     let mut file = fs::File::open(&file_name)?;
     file.seek(SeekFrom::Start(4096 * file_info.from_block as u64))?;
     for i in file_info.from_block..file_info.to_block {
-        if i == blocks {    //  last block is not always 4096 so we resizing the vector and reading exactly as much as left
+        if i == blocks {
+            //  last block is not always 4096 so we resizing the vector and reading exactly
+            // as much as left
             if last_block_size == 0 {
                 break;
             }
@@ -309,25 +326,29 @@ fn transfer_to_peer(
     Ok(())
 }
 
-///Process first query which is get file size or start download a file
+/// Process first query which is get file size or start download a file
 fn handle_first_share_request(
     shared: HashMap<String, PathBuf>,
     request: FirstRequest,
     mut stream: TcpStream,
 ) -> Option<(BlockInfo, String, u64, TcpStream)> {
     let asked_filename: String = request.filename;
-    match request.action { // Process the request
-        FileSizeorInfo::Size => {   // The other guy wants file size
+    match request.action {
+        // Process the request
+        FileSizeorInfo::Size => {
+            // The other guy wants file size
             let answ: AnswerToFirstRequest;
-            if shared.contains_key(&asked_filename) == false {  //  If we do not sharing this file right now
+            if shared.contains_key(&asked_filename) == false {
+                //  If we do not sharing this file right now
                 answ = AnswerToFirstRequest {
                     filename: asked_filename.clone(),
                     answer: FileInfo::NotExist,
-                };// We are setting the answer -- file does not exist
-                println!(
-                    "{} asked not existing file",
+                }; // We are setting the answer -- file does not exist
+
+                LOGGER.info(&format!(
+                    "{} asked for not existing file",
                     stream.peer_addr().unwrap().ip()
-                );
+                ));
             } else {
                 let size_of_file: u64 = std::fs::metadata(shared.get(&asked_filename).unwrap())
                     .unwrap()
@@ -335,23 +356,26 @@ fn handle_first_share_request(
                 answ = AnswerToFirstRequest {
                     filename: asked_filename.clone(),
                     answer: FileInfo::Size(size_of_file),
-                };  //  In the other case, we set the answer to file size
-                println!(
+                }; //  In the other case, we set the answer to file size
+
+                LOGGER.info(&format!(
                     "{} asked size of {}",
                     stream.peer_addr().unwrap().ip(),
                     &asked_filename
-                );
+                ));
             }
             let serialized = serde_json::to_string(&answ).unwrap();
-            stream.write_all(serialized.as_bytes()).unwrap();   //  Sending the answer
+            stream.write_all(serialized.as_bytes()).unwrap(); //  Sending the answer
             return None;
         }
-        FileSizeorInfo::Info(info) => { //  If other daemon wants to start download
-            println!(
+        FileSizeorInfo::Info(info) => {
+            //  If other daemon wants to start download
+            LOGGER.info(&format!(
                 "Starting sharing a {} to {}",
                 &asked_filename,
                 stream.peer_addr().unwrap().ip()
-            );
+            ));
+
             return Some((
                 info,
                 asked_filename.clone(),
@@ -365,16 +389,13 @@ fn handle_first_share_request(
 }
 
 /// Fill a HashMap of peer and his file size
-fn get_fsizes(
-    peer_list: Vec<SocketAddr>,
-    file_name: String,
-) -> io::Result<Vec<(SocketAddr, u64)>> {
+fn get_fsizes(peer_list: Vec<SocketAddr>, file_name: String) -> io::Result<Vec<(SocketAddr, u64)>> {
     let mut buf = vec![0; 4096];
     let mut peers: Vec<(SocketAddr, u64)> = Vec::new();
     let request_to_get_size = serde_json::to_string(&FirstRequest {
         filename: file_name.clone(),
         action: FileSizeorInfo::Size,
-    })?;// request to get a file size
+    })?; // request a file size
     let mut refresh = true;
 
     for peer in peer_list.iter() {
@@ -384,52 +405,55 @@ fn get_fsizes(
                 stream = _stream;
             }
             Err(e) => {
-                eprintln!(
+                LOGGER.error(&format!(
                     "Error while connecting to {} to download a file {}",
                     peer.ip(),
                     e
-                );
+                ));
+
                 continue;
             }
         }
         stream.set_read_timeout(Some(Duration::new(30, 0)))?;
         stream.set_write_timeout(Some(Duration::new(30, 0)))?;
-        stream.write_all(request_to_get_size.as_bytes())?;//sending the request to other daemons
+        stream.write_all(request_to_get_size.as_bytes())?; //sending the request to other daemons
         match stream.read(&mut buf) {
             Ok(size) => {
                 let answer: AnswerToFirstRequest = serde_json::from_slice(&buf[..size])?;
                 match answer.answer {
-                    FileInfo::Size(file_size) => {//if daemon sharing a file, we pushing his ip and size to vec
+                    FileInfo::Size(file_size) => {
+                        // if daemon sharing a file, we pushing his ip and size to vec
                         peers.push((stream.peer_addr()?, file_size));
                     }
-                    FileInfo::NotExist => {//in other case our daemon says to scan the network again
+                    FileInfo::NotExist => {
+                        // in other case our daemon says to scan the network again
                         if refresh {
-                            println!("That peer doesn't share a file! Please refresh list of files with scan!");
+                            LOGGER.info("That peer doesn't share a file! Please refresh list of files with scan!");
+
                             refresh = false;
                         }
                     }
                 }
             }
             Err(e) => {
-                eprintln!(
+                LOGGER.error(&format!(
                     "Error {} while interracting with {:?}",
                     e,
                     stream.peer_addr()
-                );
+                ));
             }
         }
     }
-    Ok(peers)   // returning vector with daemons addresses and file sizes
+    Ok(peers) // returning vector with daemons addresses and file sizes
 }
 
-///Leave the most used file size and peer
-fn clear_fsizes(
-    mut peers: Vec<(SocketAddr, u64)>,
-) -> io::Result<Vec<(SocketAddr, u64)>> {
+/// Leave the most used file size and peer
+fn clear_fsizes(mut peers: Vec<(SocketAddr, u64)>) -> io::Result<Vec<(SocketAddr, u64)>> {
     let mut _max_peers: u16 = 1;
-    //Create a vector with (FILE_SIZE, HOW_MANY_PEERS_SHARING_THIS_FILE_SIZE)
+    // Create a vector with (FILE_SIZE, HOW_MANY_PEERS_SHARING_THIS_FILE_SIZE)
     let mut fsize_count: Vec<(u64, u16)> = Vec::new();
-    peers.iter().for_each(|(_, fsize)| {//counting them all
+    peers.iter().for_each(|(_, fsize)| {
+        // counting them all
         let buffer_var = fsize_count.iter_mut().find(|(size, _)| *size == *fsize);
         if buffer_var == Option::None {
             fsize_count.push((*fsize, 1));
@@ -437,7 +461,7 @@ fn clear_fsizes(
             buffer_var.unwrap().1 += 1;
         }
     });
-    //Choosing the most used. And if they equal taking the last one
+    // Choosing the most used. And if they equal taking the last one
     let file_size = fsize_count
         .iter()
         .max_by(|(_, fcount), (_, scount)| fcount.cmp(scount))
@@ -449,7 +473,7 @@ fn clear_fsizes(
     Ok(peers)
 }
 
-//Split up the file in blocks and peers
+// Split up the file in blocks and peers
 fn fill_block_watcher(
     blocks: u32,
     peers_count: u32,
@@ -479,26 +503,26 @@ fn fill_block_watcher(
     Ok(blocks_watcher)
 }
 
-//Sending download file request to other daemons
+// Sending download file request to other daemons
 fn download_request(
     file_name: String,
     file_path: PathBuf,
     available: Vec<SocketAddr>,
     downloading: Arc<Mutex<Vec<String>>>,
 ) -> io::Result<()> {
-    //Getting the available peer which share file
+    // Getting the available peer which share file
     let peers = get_fsizes(available, file_name.clone()).unwrap();
-    //Leaving peers which sharing the most popular file
+    // Leaving peers which sharing the most popular file
     let mut peers = clear_fsizes(peers).unwrap();
 
     let file_size = peers.get(0).unwrap().1;
     let peers_count = peers.len() as u32;
 
     let blocks = (file_size / 4096) as u32;
-    //DownloadGuard would be useful here
+    // DownloadGuard would be useful here
     downloading.lock().unwrap().push(file_name.clone());
 
-    //We are tracking a downloading file status into the watcher
+    // We are tracking a downloading file status into the watcher
     let blocks_watcher: Arc<Mutex<HashMap<(u32, u32), bool>>> =
         fill_block_watcher(blocks, peers_count).unwrap();
 
@@ -516,7 +540,7 @@ fn download_request(
     {
         let block_lines = blocks_watcher.lock().unwrap().clone();
         let mut i = 0;
-        let mut del_i: usize = 0;   //For deleting failed peers
+        let mut del_i: usize = 0; //For deleting failed peers
         for ((fblock, lblock), done) in block_lines {
             if done == false {
                 if interrupted {
@@ -536,7 +560,7 @@ fn download_request(
                 let block_watcher = blocks_watcher.clone();
                 let _fsize = file_size;
                 let peer = peers[i].0.clone();
-                //Starting download a certain block from peer
+                // Starting download a certain block from peer
                 pool.execute(move || {
                     let epeer = peer.clone();
                     let efname = file_info.filename.clone();
@@ -544,12 +568,12 @@ fn download_request(
                     match res {
                         Ok(_) => (),
                         Err(e) => {
-                            eprintln!(
+                            LOGGER.error(&format!(
                                 "Downloading {} from {} was interrupted, an error occured {}",
                                 efname,
                                 epeer.ip(),
                                 e
-                            );
+                            ));
                         }
                     }
                 });
@@ -558,7 +582,7 @@ fn download_request(
             del_i += 1;
         }
 
-        pool.join();    //Waiting till every thread will end
+        pool.join(); // Waiting till every thread will end
         if blocks_watcher
             .lock()
             .unwrap()
@@ -566,28 +590,31 @@ fn download_request(
             .any(|done| *done == false)
             && interrupted == false
         {
-            // eprintln!("The connection was interrupted while downloading a {}", &file_name);
+            // eprintln!("The connection was interrupted while downloading a {}",
+            // &file_name);
             interrupted = true;
         }
     }
     downloading
         .lock()
         .unwrap()
-        .retain(|line| *line != file_name); //Delete from "downloading" downloaded file
+        .retain(|line| *line != file_name); // Delete from the "downloading" downloaded file
     if blocks_watcher
         .lock()
         .unwrap()
         .values()
         .any(|done| *done == false)
-    {// If file does not downloaded completely
-        fs::remove_file(&file_name)?;   //Deleting already downloaded part
-        eprintln!("Failed to download a {}", file_name);
+    {
+        // If file does not downloaded completely
+        fs::remove_file(&file_name)?; // Deleting an already downloaded part
+
+        LOGGER.error(&format!("Failed to download a {file_name}"));
     }
 
     Ok(())
 }
 
-///Download a specific file blocks from peer
+/// Download a specific file blocks from peer
 fn download_from_peer(
     peer: SocketAddr,
     file_info: FirstRequest,
@@ -642,15 +669,19 @@ fn download_from_peer(
 }
 
 fn main() -> io::Result<()> {
-    println!("Daemon: running");
-    //Listener for client-daemon connection
+    LOGGER.info("Running...");
+
+    // Listener for client-daemon connection
     let listener = TcpListener::bind((LOCALHOST, PORT_CLIENT_DAEMON))?;
-    //Contain maps of available to download and available to share files
+
+    // Contain maps of available to download and available to share files
     let data: Arc<Mutex<DataTemp>> = Arc::new(Mutex::new(DataTemp::new()));
-    //HashMap which contains peers, that currently downloading a file from this daemon
+
+    // HashMap which contains peers, that currently downloading a file from this
+    // daemon
     let transferring: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>> =
         Arc::new(Mutex::new(HashMap::new()));
-    //Which files we downloading right now
+    // Which files we downloading right now
     let downloading: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 
     let mult_resp_data = data.clone();
@@ -677,19 +708,20 @@ fn main() -> io::Result<()> {
                 /////////////
                 match stream.read(&mut buf) {
                     Ok(size) => {
-                        //Now the daemon does not crash when the command is entered incorrectly
+                        // Now the daemon does not crash when the command is entered incorrectly
                         let com: Command;
                         match serde_json::from_slice(&buf[..size]) {
                             Ok(c) => {
                                 com = c;
                             }
                             Err(_) => {
-                                println!("Client made a mistake!");
+                                LOGGER.info("Client made a mistake!");
+
                                 continue;
                             }
                         }
 
-                        //println!("{:?}", *data);
+                        // println!("{:?}", *data);
                         let dat = data.clone();
                         let com_transfer = transferring.clone();
                         let com_download = downloading.clone();
@@ -705,13 +737,13 @@ fn main() -> io::Result<()> {
                         });
                     }
                     Err(e) => {
-                        eprintln!("An error occurred, {}", e);
+                        LOGGER.error(e);
                     }
                 }
                 ///////////////
             }
             Err(e) => {
-                eprintln!("Error: {}", e);
+                LOGGER.error(e);
             }
         }
     }
@@ -729,7 +761,7 @@ mod unit_tests {
         let name: String = String::from("Name");
 
         match get_fsizes(v, name) {
-            Ok(o) => println!("{:?}", o),
+            Ok(o) => LOGGER.info(&format!("{:?}", o)),
             Err(e) => panic!("{:?}", e),
         }
     }
@@ -744,7 +776,7 @@ mod unit_tests {
         let name: String = String::from("Name");
 
         match get_fsizes(v, name) {
-            Ok(o) => println!("{:?}", o),
+            Ok(o) => LOGGER.info(&format!("{:?}", o)),
             Err(e) => panic!("{:?}", e),
         }
     }
@@ -757,7 +789,7 @@ mod unit_tests {
         v.push((sa, 64));
 
         match clear_fsizes(v) {
-            Ok(o) => println!("{:?}", o),
+            Ok(o) => LOGGER.info(&format!("{:?}", o)),
             Err(e) => panic!("{:?}", e),
         }
     }
@@ -947,7 +979,7 @@ mod func_tests {
             Ok(size) => {
                 let answ: Answer = serde_json::from_slice(&buf[..size]).unwrap();
                 assert_eq!(answ, Answer::Ok);
-                //Checking dat after changes
+                // Checking dat after changes
                 assert_eq!(
                     (dat.lock().unwrap())
                         .shared

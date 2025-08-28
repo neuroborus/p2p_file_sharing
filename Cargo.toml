@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/core", "crates/daemon", "crates/cli", "crates/config"]
+members = ["crates/core", "crates/daemon", "crates/cli", "crates/config", "crates/utils"]
 
 [profile.release]
 lto = "thin"
@@ -7,6 +7,7 @@ codegen-units = 1
 resolver = "3"   # use the 2024 resolver
 
 [workspace.dependencies]
+chrono = "0.4" # using in logger
 clap = "2.33.0"
 serde = "1.0.101"
 serde_json = "1.0.41"

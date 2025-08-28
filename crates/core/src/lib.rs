@@ -1,54 +1,50 @@
+pub use std::collections::{HashMap, LinkedList};
+pub use std::io::prelude::*;
+pub use std::io::{Read, SeekFrom, Write};
+pub use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream, UdpSocket};
+pub use std::path::PathBuf;
+pub use std::str::FromStr;
+pub use std::sync::mpsc::{Receiver, Sender};
+pub use std::sync::{Arc, Mutex, MutexGuard, mpsc};
+pub use std::time::Duration;
+pub use std::{fs, io, str, thread};
+
 pub use rand::Rng;
 use serde_derive::*;
-pub use std::{
-    collections::{HashMap, LinkedList},
-    fs, io,
-    io::{prelude::*, Read, SeekFrom, Write},
-    net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream, UdpSocket},
-    path::PathBuf,
-    str,
-    str::FromStr,
-    sync::{
-        mpsc,
-        mpsc::{Receiver, Sender},
-        Arc, Mutex, MutexGuard,
-    },
-    thread,
-    time::Duration,
-};
 pub use threadpool::ThreadPool;
 
 #[derive(Serialize, Deserialize, Debug)]
-///A command that is serialized in the client and sent to the daemon
+/// A command that is serialized in the client and sent to the daemon
 pub enum Command {
-    //Client -> Daemon
-    ///Share a file with a network
+    // Client -> Daemon
+    /// Share a file with a network
     Share { file_path: PathBuf },
-    ///Scans the network for files that can be downloaded
+    /// Scans the network for files that can be downloaded
     Scan,
-    ///Show files that can be downloaded
+    /// Show files that can be downloaded
     Ls,
-    ///Download a downloadable file (path is optional)
+    /// Download a downloadable file (path is optional)
     Download {
         file_name: String,
         save_path: PathBuf,
-        wait: bool, //Block input until file is downloaded
+        wait: bool, // Block input until file is downloaded
     },
-    ///Show distributed files
+    /// Show distributed files
     Status,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
-///The response to the command is serialized in the daemon and sent to the client
+/// The response to the command is serialized in the daemon and sent to the
+/// client
 pub enum Answer {
-    //Daemon -> Client
+    // Daemon -> Client
     Ok,
     Err(String),
-    ///Available to download
+    /// Available to download
     Ls {
         available_map: HashMap<String, Vec<SocketAddr>>,
     },
-    ///Distributed files
+    /// Distributed files
     Status {
         transferring_map: HashMap<String, Vec<SocketAddr>>,
         shared_map: HashMap<String, PathBuf>,
@@ -57,12 +53,12 @@ pub enum Answer {
 }
 
 #[derive(Debug)]
-///Contain HashMaps of available for transfer and download files
+/// Contain HashMaps of available for transfer and download files
 pub struct DataTemp {
-    //Available to downloading files: name_of_file--shared IP addresses
+    // Available to downloading files: name_of_file--shared IP addresses
     pub available: HashMap<String, Vec<SocketAddr>>,
-    //Your files, that available to transfer
-    pub shared: HashMap<String, PathBuf>, //FileName - Path
+    // Your files, that available to transfer
+    pub shared: HashMap<String, PathBuf>, // FileName - Path
 }
 
 impl DataTemp {
@@ -74,7 +70,8 @@ impl DataTemp {
     }
 }
 #[derive(Debug)]
-///Adding peer to transferring vector when created, and removing peer from vector while destroying
+/// Adding peer to transferring vector when created, and removing peer from
+/// vector while destroying
 pub struct TransferGuard {
     pub transferring: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>>,
     pub filename: String,
@@ -92,7 +89,7 @@ impl TransferGuard {
             filename: _filename,
             peer: _peer,
         };
-        //Pushing the peer to vector
+        // Pushing the peer to vector
         {
             let mut transfer_map = guard.transferring.lock().unwrap();
             match transfer_map.get_mut(&guard.filename) {
@@ -112,7 +109,7 @@ impl TransferGuard {
 
 impl Drop for TransferGuard {
     fn drop(&mut self) {
-    //Removing the peer from vector
+        // Removing the peer from vector
         {
             let mut transfer_map = self.transferring.lock().unwrap();
             if transfer_map.get(&self.filename).unwrap().len() == 1 {
@@ -127,35 +124,37 @@ impl Drop for TransferGuard {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-///Serialized request from daemon which want to get file size or start download a file
+/// Serialized request from daemon which want to get file size or start download
+/// a file
 pub struct FirstRequest {
     pub filename: String,
     pub action: FileSizeorInfo,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-///Stores an action downloadable peer want to do
+/// Stores an action downloadable peer want to do
 pub enum FileSizeorInfo {
     Info(BlockInfo),
     Size,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-///Store which blocks are downloadable
+/// Store which blocks are downloadable
 pub struct BlockInfo {
     pub from_block: u32,
     pub to_block: u32,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-///Stores filename and answer to size request
+/// Stores filename and answer to size request
 pub struct AnswerToFirstRequest {
     pub filename: String,
     pub answer: FileInfo,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-///If downloadable peer asked file size we answering with size or file not exist
+/// If downloadable peer asked file size we answering with size or file not
+/// exist
 pub enum FileInfo {
     Size(u64),
     NotExist,

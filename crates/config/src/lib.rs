@@ -1,4 +1,4 @@
-pub use std::{net::{Ipv4Addr}};
+pub use std::net::Ipv4Addr;
 
 pub const LOCALHOST: &str = "localhost";
 pub const LOCAL_NETWORK: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
