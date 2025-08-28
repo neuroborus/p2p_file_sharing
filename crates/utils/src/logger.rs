@@ -5,10 +5,14 @@ use chrono::Local;
 enum Level {
     Info(&'static str),
     Error(&'static str),
+    Debug(&'static str),
 }
 impl Level {
     pub fn info() -> Self {
         Level::Info("INFO")
+    }
+    pub fn debug() -> Self {
+        Level::Debug("DEBUG")
     }
     pub fn error() -> Self {
         Level::Error("ERROR")
@@ -17,6 +21,7 @@ impl Level {
     pub fn as_str(&self) -> &'static str {
         match self {
             Level::Info(s) => s,
+            Level::Debug(s) => s,
             Level::Error(s) => s,
         }
     }
@@ -43,8 +48,9 @@ impl Logger {
     fn create_message(&self, level: Level, msg: impl Display) -> String {
         if self.compact {
             let prefix = match level {
-                Level::Error(_) => "!", /* We need to match as templates, because we have the
-                                          * value inside */
+                // We need to match as templates because of the value inside
+                Level::Debug(_) => "d",
+                Level::Error(_) => "!",
                 _ => "",
             };
 
@@ -61,6 +67,9 @@ impl Logger {
     }
     pub fn info(&self, msg: impl Display) {
         println!("{}", self.create_message(Level::info(), msg));
+    }
+    pub fn debug(&self, msg: impl Display) {
+        println!("{}", self.create_message(Level::debug(), msg));
     }
     pub fn error(&self, error: impl Display) {
         println!("{}", self.create_message(Level::error(), error));
