@@ -120,7 +120,7 @@ fn main() -> io::Result<()> {
             LOGGER.debug("request written, waiting for reply...");
         }
         _ => {
-            LOGGER.error("Wrong command!");
+            LOGGER.error("Wrong action!");
 
             flag = false;
         }
