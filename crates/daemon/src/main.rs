@@ -331,7 +331,7 @@ fn transfer_to_peer(
 
     let file_info: BlockInfo;
     let file_name: String;
-    let file_size: u64;
+    let file_size: u64; // TODO: maks usize?
 
     match stream.read(&mut buf) {
         Ok(size) => {
@@ -381,7 +381,8 @@ fn transfer_to_peer(
     // or the stream write timeout is ended),
     // guard will automatically remove the daemon address from vector
 
-    blocks = std::cmp::max(1, ((file_size as usize) / CHUNK_SIZE) as u32); // At least one block
+    blocks = helpers::blocks_count(file_size, CHUNK_SIZE);
+    // blocks = std::cmp::max(1, ((file_size as usize) / CHUNK_SIZE) as u32); // At least one block TODO add to utils and reuse
     let last_block_size = (file_size as usize) % CHUNK_SIZE;
 
     LOGGER.debug(format!(
@@ -622,7 +623,8 @@ fn download_request(
     LOGGER.debug(format!("download: file_size={}", file_size));
     let peers_count = clean_peers.len() as u32;
 
-    let blocks = (file_size / CHUNK_SIZE as u64) as u32;
+    let blocks = helpers::blocks_count(file_size, CHUNK_SIZE);
+    // let blocks = std::cmp::max(1, ((file_size as usize) / CHUNK_SIZE) as u32); // TODO: move to utils and reuse
     LOGGER.debug(format!(
         "download: blocks={} peers_count={}",
         blocks, peers_count

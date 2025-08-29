@@ -1,3 +1,4 @@
+// TODO: remove pub and re-import
 pub use std::collections::{HashMap, LinkedList};
 pub use std::io::prelude::*;
 pub use std::io::{Read, SeekFrom, Write};
@@ -12,6 +13,8 @@ pub use std::{fs, io, str, thread};
 pub use rand::Rng;
 use serde_derive::*;
 pub use threadpool::ThreadPool;
+
+pub mod helpers;
 
 #[derive(Serialize, Deserialize, Debug)]
 /// An action that is serialized in the client and sent to the daemon
