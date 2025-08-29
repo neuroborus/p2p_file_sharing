@@ -11,4 +11,6 @@ pub const PORT_SCAN_TCP: u16 = 7647;
 pub const PORT_FILE_SHARE: u16 = 7648;
 pub const PORT_SELF_IP: u16 = 60005;
 
+pub const CHUNK_SIZE: usize = 4096;
+
 pub const SCAN_REQUEST: &[u8; 20] = b"UDP_Scan_Request_P2P";

@@ -127,7 +127,7 @@ fn main() -> io::Result<()> {
     }
 
     if flag {
-        let mut buf = vec![0 as u8; 4096];
+        let mut buf = vec![0 as u8; CHUNK_SIZE];
         match stream.read(&mut buf) {
             Ok(size) => {
                 let answ: Answer = serde_json::from_slice(&buf[..size])?;

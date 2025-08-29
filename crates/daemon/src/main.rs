@@ -40,7 +40,7 @@ pub fn get_this_daemon_ip() -> io::Result<IpAddr> {
                 )
                 .unwrap();
         }
-        let mut buf = vec![0; 4096];
+        let mut buf = vec![0; CHUNK_SIZE];
         loop {
             let (len, remote_addr) = listener.recv_from(&mut buf).unwrap();
             LOGGER.debug(format!("selfip: got {} bytes from {}", len, remote_addr));
@@ -176,7 +176,7 @@ fn multicast_responder(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
     ));
 
     let mut shared: Vec<String>;
-    let mut buf = vec![0; 4096];
+    let mut buf = vec![0; CHUNK_SIZE];
     loop {
         let (len, remote_addr) = listener.recv_from(&mut buf)?;
         LOGGER.debug(format!(
@@ -233,7 +233,7 @@ fn multicast_receiver(data: Arc<Mutex<DataTemp>>) -> io::Result<()> {
         listener.local_addr().unwrap()
     ));
     // Get names of files with tcp (his shared - your available)
-    let mut buf = vec![0 as u8; 4096];
+    let mut buf = vec![0 as u8; CHUNK_SIZE];
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => {
@@ -324,7 +324,7 @@ fn transfer_to_peer(
     shared: HashMap<String, PathBuf>,
 ) -> io::Result<()> {
     LOGGER.debug("transfer: waiting first request...");
-    let mut buf = vec![0; 4096];
+    let mut buf = vec![0; CHUNK_SIZE];
 
     stream.set_read_timeout(Some(Duration::new(45, 0)))?;
     stream.set_write_timeout(Some(Duration::new(45, 0)))?; // setting the timeouts
@@ -381,8 +381,8 @@ fn transfer_to_peer(
     // or the stream write timeout is ended),
     // guard will automatically remove the daemon address from vector
 
-    blocks = (file_size / 4096) as u32;
-    let last_block_size = (file_size % 4096) as usize;
+    blocks = std::cmp::max(1, ((file_size as usize) / CHUNK_SIZE) as u32); // At least one block
+    let last_block_size = (file_size as usize) % CHUNK_SIZE;
 
     LOGGER.debug(format!(
         "transfer: blocks={} last_block_size={}",
@@ -390,7 +390,7 @@ fn transfer_to_peer(
     ));
 
     let mut file = fs::File::open(&file_name)?;
-    file.seek(SeekFrom::Start(4096 * file_info.from_block as u64))?;
+    file.seek(SeekFrom::Start(CHUNK_SIZE as u64 * file_info.from_block as u64))?;
     for i in file_info.from_block..file_info.to_block {
         if i == blocks {
             //  last block is not always 4096 so we resizing the vector and reading exactly
@@ -476,7 +476,7 @@ fn get_fsizes(peer_list: Vec<SocketAddr>, file_name: String) -> io::Result<Vec<(
         peer_list.len(),
         file_name
     ));
-    let mut buf = vec![0; 4096];
+    let mut buf = vec![0; CHUNK_SIZE];
     let mut peers: Vec<(SocketAddr, u64)> = Vec::new();
     let request_to_get_size = serde_json::to_string(&FirstRequest {
         filename: file_name.clone(),
@@ -622,7 +622,7 @@ fn download_request(
     LOGGER.debug(format!("download: file_size={}", file_size));
     let peers_count = clean_peers.len() as u32;
 
-    let blocks = (file_size / 4096) as u32;
+    let blocks = (file_size / CHUNK_SIZE as u64) as u32;
     LOGGER.debug(format!(
         "download: blocks={} peers_count={}",
         blocks, peers_count
@@ -749,8 +749,8 @@ fn download_from_peer(
 ) -> io::Result<()> {
     let mut stream = TcpStream::connect((peer.ip(), PORT_FILE_SHARE))?;
 
-    let mut buf = vec![0u8; 4096];
-    let file_blocks = (file_size / 4096) as u32;
+    let mut buf = vec![0u8; CHUNK_SIZE];
+    let file_blocks = (file_size / CHUNK_SIZE as u64) as u32;
 
     stream.set_read_timeout(Some(Duration::new(45, 0)))?;
     stream.set_write_timeout(Some(Duration::new(45, 0)))?;
@@ -772,9 +772,9 @@ fn download_from_peer(
         }
     }
 
-    let last_block_size = file_size as usize % 4096;
+    let last_block_size = file_size as usize % CHUNK_SIZE;
     let mut file = fs::File::create(&file_info.filename)?;
-    file.seek(SeekFrom::Start(4096 * fblock as u64))?;
+    file.seek(SeekFrom::Start(CHUNK_SIZE as u64 * fblock as u64))?;
     for i in fblock..lblock {
         if i == file_blocks {
             if last_block_size == 0 {
@@ -826,7 +826,7 @@ fn main() -> io::Result<()> {
     });
 
     //
-    let mut buf = vec![0 as u8; 4096];
+    let mut buf = vec![0 as u8; CHUNK_SIZE];
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => {
@@ -840,7 +840,7 @@ fn main() -> io::Result<()> {
                                 action = c;
                             }
                             Err(_) => {
-                                LOGGER.info("Client made a mistake!");
+                                LOGGER.debug("Client made a mistake!");
 
                                 continue;
                             }
@@ -1099,7 +1099,7 @@ mod func_tests {
 
         action_processor(&share, stream_tmp, dat.lock().unwrap(), tr, dow).unwrap();
 
-        let mut buf = vec![0 as u8; 4096];
+        let mut buf = vec![0 as u8; CHUNK_SIZE];
         match stream.read(&mut buf) {
             Ok(size) => {
                 let answ: Answer = serde_json::from_slice(&buf[..size]).unwrap();
@@ -1137,7 +1137,7 @@ mod func_tests {
 
         action_processor(&download, stream_tmp, dat.lock().unwrap(), tr, dow).unwrap();
 
-        let mut buf = vec![0 as u8; 4096];
+        let mut buf = vec![0 as u8; CHUNK_SIZE];
         match stream.read(&mut buf) {
             Ok(size) => {
                 let answ: Answer = serde_json::from_slice(&buf[..size]).unwrap();
@@ -1164,7 +1164,7 @@ mod func_tests {
 
         action_processor(&scan, stream_tmp, dat.lock().unwrap(), tr, dow).unwrap();
 
-        let mut buf = vec![0 as u8; 4096];
+        let mut buf = vec![0 as u8; CHUNK_SIZE];
         match stream.read(&mut buf) {
             Ok(size) => {
                 let answ: Answer = serde_json::from_slice(&buf[..size]).unwrap();
@@ -1195,7 +1195,7 @@ mod func_tests {
 
         action_processor(&ls, stream_tmp, dat.lock().unwrap(), tr, dow).unwrap();
 
-        let mut buf = vec![0 as u8; 4096];
+        let mut buf = vec![0 as u8; CHUNK_SIZE];
         match stream.read(&mut buf) {
             Ok(size) => {
                 let answ: Answer = serde_json::from_slice(&buf[..size]).unwrap();
@@ -1235,7 +1235,7 @@ mod func_tests {
 
         action_processor(&status, stream_tmp, dat.lock().unwrap(), tr, dow).unwrap();
 
-        let mut buf = vec![0 as u8; 4096];
+        let mut buf = vec![0 as u8; CHUNK_SIZE]; // TODO: move creation to utils and reuse
         match stream.read(&mut buf) {
             Ok(size) => {
                 let answ: Answer = serde_json::from_slice(&buf[..size]).unwrap();
