@@ -1,8 +1,9 @@
-use std::net::TcpStream;
+use std::{io, io::prelude::*, net::TcpStream, path::PathBuf}; // io::prelude::* requires for work with stream
 use clap::{Arg, ArgAction, ArgMatches, Command};
-use p2p_config::*;
-use p2p_core::entities::*;
-use p2p_core::*;
+use p2p_config::{LOCALHOST, PORT_CLIENT_DAEMON, CHUNK_SIZE};
+use p2p_core::entities::{Action, Response};
+use p2p_core::helpers;
+//
 use p2p_utils::logger::Logger;
 static LOGGER: Logger = Logger::compact("cli");
 
@@ -22,8 +23,7 @@ pub fn connect() -> TcpStream {
 ///
 /// # Subcommands
 ///
-/// - **share** `<PATH>`  
-///   Share a file with other peers in the LAN.  
+/// - **share** `<PATH>`   Share a file with other peers in the LAN.
 ///   - `PATH`: Path to the file to share (required).
 ///
 ///   Example:
@@ -31,24 +31,16 @@ pub fn connect() -> TcpStream {
 ///   p2p-cli share ./myfile.txt
 ///   ```
 ///
-/// - **scan**  
-///   Broadcast a scan request to discover all files shared in the LAN.  
-///   Example:
-///   ```bash
-///   p2p-cli scan
-///   ```
+/// - **scan**   Broadcast a scan request to discover all files shared in the
+///   LAN.   Example: ```bash p2p-cli scan ```
 ///
-/// - **ls**  
-///   List all files currently available to download (after a scan).  
-///   Example:
-///   ```bash
-///   p2p-cli ls
-///   ```
+/// - **ls**   List all files currently available to download (after a scan).
+///   Example: ```bash p2p-cli ls ```
 ///
-/// - **download** `-f <NAME>` [`-o <OUT_DIR>`] [`-w`]  
-///   Download a file by name from available peers.  
-///   - `-f, --file <NAME>`: Name of the file to download (required).  
-///   - `-o, --out <OUT_DIR>`: Optional output directory.  
+/// - **download** `-f <NAME>` [`-o <OUT_DIR>`] [`-w`]   Download a file by name
+///   from available peers.
+///   - `-f, --file <NAME>`: Name of the file to download (required).
+///   - `-o, --out <OUT_DIR>`: Optional output directory.
 ///   - `-w, --wait`: Wait (block) until the download finishes.
 ///
 ///   Examples:
@@ -60,13 +52,8 @@ pub fn connect() -> TcpStream {
 ///   p2p-cli download -f myfile.txt -o ./downloads -w
 ///   ```
 ///
-/// - **status**  
-///   Show the current daemon status: files being transferred,
-///   shared files, and ongoing downloads.  
-///   Example:
-///   ```bash
-///   p2p-cli status
-///   ```
+/// - **status**   Show the current daemon status: files being transferred,
+///   shared files, and ongoing downloads.   Example: ```bash p2p-cli status ```
 ///
 /// # Usage
 /// 1. Start the daemon on your machine.
@@ -80,23 +67,15 @@ pub fn create_command() -> Command {
         .subcommand_required(true) // should be at least 1 action
         .arg_required_else_help(true)
         .subcommand(
-            Command::new("share")
-                .about("Share a file")
-                .arg(
-                    Arg::new("FILE_PATH")
-                        .help("Path to file to share")
-                        .required(true) // path arg
-                        .value_name("PATH")
-                )
+            Command::new("share").about("Share a file").arg(
+                Arg::new("FILE_PATH")
+                    .help("Path to file to share")
+                    .required(true) // path arg
+                    .value_name("PATH"),
+            ),
         )
-        .subcommand(
-            Command::new("scan")
-                .about("Scan LAN for shared files")
-        )
-        .subcommand(
-            Command::new("ls")
-                .about("List available files")
-        )
+        .subcommand(Command::new("scan").about("Scan LAN for shared files"))
+        .subcommand(Command::new("ls").about("List available files"))
         .subcommand(
             Command::new("download")
                 .about("Download a file")
@@ -106,54 +85,50 @@ pub fn create_command() -> Command {
                         .required(true)
                         .short('f')
                         .long("file")
-                        .value_name("NAME")
+                        .value_name("NAME"),
                 )
                 .arg(
                     Arg::new("FILE_PATH")
                         .help("Optional save directory")
                         .value_name("OUT_DIR")
                         .short('o')
-                        .long("out")
+                        .long("out"),
                 )
                 .arg(
                     Arg::new("WAIT")
                         .help("Wait (block) until download finishes")
                         .short('w')
                         .long("wait")
-                        .action(ArgAction::SetTrue) // bool-flag
-                )
+                        .action(ArgAction::SetTrue), // bool-flag
+                ),
         )
-        .subcommand(
-            Command::new("status")
-                .about("Show current status")
-        )
+        .subcommand(Command::new("status").about("Show current status"))
 }
 
-pub fn process_actions(stream: &mut TcpStream, health: &mut bool, matches: &ArgMatches) -> io::Result<()> {
+pub fn process_actions(stream: &mut TcpStream, matches: &ArgMatches) -> io::Result<()> {
     match matches.subcommand() {
-        
         Some(("share", sub)) => {
             if !sub.args_present() {
-                LOGGER.error("No path for sharing!");
-
-                *health = false;
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "No path for sharing!",
+                ));
             }
-            if *health {
-                let f_path = PathBuf::from(sub.get_one::<String>("FILE_PATH").unwrap());
+            let f_path = PathBuf::from(sub.get_one::<String>("FILE_PATH").unwrap());
 
-                if f_path.is_file() {
-                    // Checking the file
-                    let share = Action::Share { file_path: f_path };
-                    //
-                    LOGGER.debug("send Action::Share");
-                    let serialized = serde_json::to_string(&share)?;
-                    stream.write_all(serialized.as_bytes()).unwrap();
-                    LOGGER.debug("request written, waiting for reply...");
-                } else {
-                    LOGGER.error("File does not exists!");
-
-                    *health = false;
-                }
+            if f_path.is_file() {
+                // Checking the file
+                let share = Action::Share { file_path: f_path };
+                //
+                LOGGER.debug("send Action::Share");
+                let serialized = serde_json::to_string(&share)?;
+                stream.write_all(serialized.as_bytes()).unwrap();
+                LOGGER.debug("request written, waiting for reply...");
+            } else {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "File does not exists!",
+                ));
             }
         }
 
@@ -177,31 +152,30 @@ pub fn process_actions(stream: &mut TcpStream, health: &mut bool, matches: &ArgM
 
         Some(("download", sub)) => {
             if !sub.args_present() {
-                LOGGER.error("No file name to download!");
-
-                *health = false;
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "No file name to download!",
+                ));
             }
             //
-            if *health {
-                let s_path: PathBuf = sub
-                    .get_one::<String>("FILE_PATH")
-                    .map(|s| PathBuf::from(s))
-                    .unwrap_or_default();
-                //
-                let f_name: String = String::from(sub.get_one::<String>("FILE_NAME").unwrap());
-                //
-                let wait = sub.get_flag("WAIT");
-                let download: Action = Action::Download {
-                        file_name: f_name,
-                        save_path: s_path,
-                        wait,
-                    };
-                //
-                LOGGER.debug("send Action::Download");
-                let serialized = serde_json::to_string(&download)?;
-                stream.write_all(serialized.as_bytes()).unwrap();
-                LOGGER.debug("request written, waiting for reply...");
-            }
+            let s_path: PathBuf = sub
+                .get_one::<String>("FILE_PATH")
+                .map(|s| PathBuf::from(s))
+                .unwrap_or_default();
+            //
+            let f_name: String = String::from(sub.get_one::<String>("FILE_NAME").unwrap());
+            //
+            let wait = sub.get_flag("WAIT");
+            let download: Action = Action::Download {
+                file_name: f_name,
+                save_path: s_path,
+                wait,
+            };
+            //
+            LOGGER.debug("send Action::Download");
+            let serialized = serde_json::to_string(&download)?;
+            stream.write_all(serialized.as_bytes()).unwrap();
+            LOGGER.debug("request written, waiting for reply...");
         }
 
         Some(("status", _)) => {
@@ -214,79 +188,74 @@ pub fn process_actions(stream: &mut TcpStream, health: &mut bool, matches: &ArgM
         }
 
         _ => {
-            LOGGER.error("Wrong action!");
-
-            *health = false;
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "Wrong action!"));
         }
     }
 
     Ok(())
 }
 
-pub fn process_daemon_response(stream: &mut TcpStream, health: &bool) -> io::Result<()> {
-    if *health {
-        let mut buf = helpers::create_buffer(CHUNK_SIZE);
-        match stream.read(&mut buf) {
-            Ok(size) => {
-                let answ: Response = serde_json::from_slice(&buf[..size])?;
-                LOGGER.debug(format!("got reply {} bytes", size));
+pub fn process_daemon_response(stream: &mut TcpStream) -> io::Result<()> {
+    let mut buf = helpers::create_buffer(CHUNK_SIZE);
+    match stream.read(&mut buf) {
+        Ok(size) => {
+            let answ: Response = serde_json::from_slice(&buf[..size])?;
+            LOGGER.debug(format!("got reply {} bytes", size));
 
-                match answ {
+            match answ {
+                Response::Ls { available_map: map } => {
+                    LOGGER.debug(format!("Ls -> {} files", map.len()));
+                    LOGGER.info("Files available to download:");
 
-                    Response::Ls { available_map: map } => {
-                        LOGGER.debug(format!("Ls -> {} files", map.len()));
-                        LOGGER.info("Files available to download:");
-
-                        for file in map.keys() {
-                            println!("\t{}", file);
-                        }
+                    for file in map.keys() {
+                        println!("\t{}", file);
                     }
-
-                    Response::Status {
-                        transferring_map: t_map,
-                        shared_map: s_map,
-                        downloading_map: d_map,
-                    } => {
-                        LOGGER.debug(format!(
-                            "Status -> shared={} transferring={} downloading={}",
-                            s_map.len(),
-                            t_map.len(),
-                            d_map.len()
-                        ));
-                        LOGGER.info("Sharing:");
-
-                        for file in s_map.keys() {
-                            println!("\t{}", file);
-                            let f_vec = t_map.get(file);
-                            match f_vec {
-                                Some(vec) => {
-                                    for peer in vec.iter() {
-                                        println!("\t\t{}", peer.ip());
-                                    }
-                                }
-                                None => (),
-                            }
-                        }
-
-                        // ?:
-                        LOGGER.info("Downloading:");
-
-                        for file in d_map {
-                            println!("\t{}", file);
-                        }
-                    }
-
-                    Response::Err(e) => {
-                        LOGGER.debug(format!("read error from {}", stream.peer_addr().unwrap()));
-                        LOGGER.error(e);
-                    }
-
-                    _ => (),
                 }
+
+                Response::Status {
+                    transferring_map: t_map,
+                    shared_map: s_map,
+                    downloading_map: d_map,
+                } => {
+                    LOGGER.debug(format!(
+                        "Status -> shared={} transferring={} downloading={}",
+                        s_map.len(),
+                        t_map.len(),
+                        d_map.len()
+                    ));
+                    LOGGER.info("Sharing:");
+
+                    for file in s_map.keys() {
+                        println!("\t{}", file);
+                        let f_vec = t_map.get(file);
+                        match f_vec {
+                            Some(vec) => {
+                                for peer in vec.iter() {
+                                    println!("\t\t{}", peer.ip());
+                                }
+                            }
+                            None => (),
+                        }
+                    }
+
+                    // ?:
+                    LOGGER.info("Downloading:");
+
+                    for file in d_map {
+                        println!("\t{}", file);
+                    }
+                }
+
+                Response::Err(e) => {
+                    LOGGER.debug(format!("read error from {}", stream.peer_addr().unwrap()));
+                    LOGGER.error(e);
+                }
+
+                _ => (),
             }
-            Err(_) => {
-                LOGGER.error(stream.peer_addr().unwrap());
-            }
+        }
+        Err(_) => {
+            LOGGER.error(stream.peer_addr().unwrap());
         }
     }
     Ok(())
