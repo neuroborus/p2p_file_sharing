@@ -1,11 +1,13 @@
-use std::{io, io::prelude::*, net::TcpStream, path::PathBuf}; // io::prelude::* requires for work with stream
+use std::{io, io::prelude::*, net::TcpStream, path::PathBuf}; /* io::prelude::* requires for
+                                                               * work with stream */
+
 use clap::{Arg, ArgAction, ArgMatches, Command};
-use p2p_config::{LOCALHOST, PORT_CLIENT_DAEMON, CHUNK_SIZE};
+use p2p_config::{CHUNK_SIZE, LOCALHOST, PORT_CLIENT_DAEMON};
 use p2p_core::entities::{Action, Response};
 use p2p_core::helpers;
 //
 use p2p_utils::logger::Logger;
-static LOGGER: Logger = Logger::compact("cli");
+pub static LOGGER: Logger = Logger::compact("cli");
 
 pub fn connect() -> TcpStream {
     LOGGER.debug(format!("connect {}:{}", LOCALHOST, PORT_CLIENT_DAEMON));
