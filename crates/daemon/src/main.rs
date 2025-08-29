@@ -598,7 +598,7 @@ fn fill_block_watcher(
             let fblock = i * blocks_per_peer;
             let mut lblock = (i + 1) * blocks_per_peer;
             if i == peers_count - 1 {
-                lblock = blocks + 1;
+                lblock = blocks; // removed blocks + 1
             }
             b_watch.insert((fblock, lblock), false);
         }
