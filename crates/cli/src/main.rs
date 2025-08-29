@@ -1,5 +1,6 @@
 use clap::{App, Arg};
 use p2p_config::*;
+use p2p_core::entities::*;
 use p2p_core::*;
 use p2p_utils::logger::Logger;
 
@@ -127,14 +128,14 @@ fn main() -> io::Result<()> {
     }
 
     if flag {
-        let mut buf = vec![0 as u8; CHUNK_SIZE];
+        let mut buf = helpers::create_buffer(CHUNK_SIZE);
         match stream.read(&mut buf) {
             Ok(size) => {
-                let answ: Answer = serde_json::from_slice(&buf[..size])?;
+                let answ: Response = serde_json::from_slice(&buf[..size])?;
                 LOGGER.debug(format!("got reply {} bytes", size));
                 // println!("{:?}", answ);
                 match answ {
-                    Answer::Ls { available_map: map } => {
+                    Response::Ls { available_map: map } => {
                         LOGGER.debug(format!("Ls -> {} files", map.len()));
                         LOGGER.info("Files available to download:");
 
@@ -142,7 +143,7 @@ fn main() -> io::Result<()> {
                             println!("\t{}", file);
                         }
                     }
-                    Answer::Status {
+                    Response::Status {
                         transferring_map: t_map,
                         shared_map: s_map,
                         downloading_map: d_map,
@@ -175,7 +176,7 @@ fn main() -> io::Result<()> {
                             println!("\t{}", file);
                         }
                     }
-                    Answer::Err(e) => {
+                    Response::Err(e) => {
                         LOGGER.debug(format!("read error from {}", stream.peer_addr().unwrap()));
                         LOGGER.error(e);
                     }
