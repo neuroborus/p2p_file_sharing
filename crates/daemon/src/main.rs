@@ -393,7 +393,7 @@ fn transfer_to_peer(
     let mut file = fs::File::open(&file_name)?;
     file.seek(SeekFrom::Start(CHUNK_SIZE as u64 * file_info.from_block as u64))?;
     for i in file_info.from_block..file_info.to_block {
-        if i == blocks {
+        if i == blocks - 1 { // added -1
             //  last block is not always 4096 so we resizing the vector and reading exactly
             // as much as left
             if last_block_size == 0 {
