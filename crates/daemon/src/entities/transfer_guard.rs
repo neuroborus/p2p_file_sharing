@@ -3,15 +3,19 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug)]
-/// Adding peer to transferring vector when created, and removing peer from
-/// vector while destroying
+/// RAII guard that registers a peer as transferring a file and
+/// automatically removes it when dropped.
 pub struct TransferGuard {
+    /// Shared map: file name → list of peers currently receiving it.
     pub transferring: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>>,
+    /// Name of the file being transferred.
     pub filename: String,
+    /// Address of the peer receiving the file.
     pub peer: SocketAddr,
 }
 
 impl TransferGuard {
+    /// Create a new `TransferGuard` and add the peer to the transferring map.
     pub fn new(
         _transferring: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>>,
         _filename: String,
@@ -22,7 +26,6 @@ impl TransferGuard {
             filename: _filename,
             peer: _peer,
         };
-        // Pushing the peer to vector
         {
             let mut transfer_map = guard.transferring.lock().unwrap();
             match transfer_map.get_mut(&guard.filename) {
@@ -42,7 +45,6 @@ impl TransferGuard {
 
 impl Drop for TransferGuard {
     fn drop(&mut self) {
-        // Removing the peer from vector
         {
             let mut transfer_map = self.transferring.lock().unwrap();
             if transfer_map.get(&self.filename).unwrap().len() == 1 {

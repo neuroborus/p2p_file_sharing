@@ -1,7 +1,7 @@
 use std::io;
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
-use std::str::FromStr; // because we need to be able to do u128::from_str
+use std::str::FromStr; // needed for u128::from_str
 use std::sync::{Arc, Mutex};
 
 use p2p_config::{
@@ -23,7 +23,7 @@ pub fn bind_multicast(addr: &Ipv4Addr, port: u16) -> io::Result<UdpSocket> {
     UdpSocket::bind((*addr, port))
 }
 
-/// Getting an IP of the current daemon thread
+/// Resolve this daemon's local network IP via multicast self-probe.
 pub fn get_this_daemon_ip() -> io::Result<IpAddr> {
     let unique_number: u128 = random();
     let self_ip: IpAddr;
@@ -36,6 +36,8 @@ pub fn get_this_daemon_ip() -> io::Result<IpAddr> {
         listener
             .join_multicast_v4(&DAEMON_MULTICAST_ADDR, &LOCAL_NETWORK)
             .unwrap();
+        // Send a unique token to the group; the socket that receives it back exposes
+        // our IP.
         {
             LOGGER.debug("selfip: send probe token");
             let socket = UdpSocket::bind((LOCAL_NETWORK, 0)).unwrap();
@@ -69,7 +71,7 @@ pub fn get_this_daemon_ip() -> io::Result<IpAddr> {
     Ok(self_ip)
 }
 
-/// Responds to multicast requests from other daemons
+/// Respond to multicast scan requests from other daemons.
 pub fn multicast_responder(data: Arc<Mutex<FileState>>) -> io::Result<()> {
     let this_daemon_ip = get_this_daemon_ip().unwrap();
 
@@ -93,8 +95,8 @@ pub fn multicast_responder(data: Arc<Mutex<FileState>>) -> io::Result<()> {
             remote_addr, len
         ));
         let remote_addr_ip = remote_addr.ip();
+        // Ignore our own probe; answer only foreign requests.
         if remote_addr_ip != this_daemon_ip {
-            // Check if that's not our daemon, then we will respond
             let message = &buf[..len];
             LOGGER.debug(format!(
                 "responder: msg first20={:?}",
@@ -117,6 +119,8 @@ pub fn multicast_responder(data: Arc<Mutex<FileState>>) -> io::Result<()> {
                     remote_addr_ip, remote_addr_ip, PORT_SCAN_TCP
                 ));
                 LOGGER.info(format!("{remote_addr_ip} asked for scan"));
+
+                // Serialize the list of files we share and send it back.
                 let dat = data.lock().unwrap();
                 shared = Vec::new();
                 for key in dat.shared.keys() {
@@ -129,8 +133,7 @@ pub fn multicast_responder(data: Arc<Mutex<FileState>>) -> io::Result<()> {
     }
 }
 
-// Function that receiving answer from other daemons to refresh our "available
-// files to download" list
+/// Accept TCP scan results and update the local “available files” map.
 pub fn multicast_receiver(data: Arc<Mutex<FileState>>) -> io::Result<()> {
     LOGGER.debug(format!(
         "receiver: bind TCP {}:{}",
@@ -141,7 +144,7 @@ pub fn multicast_receiver(data: Arc<Mutex<FileState>>) -> io::Result<()> {
         "receiver: listening on {}",
         listener.local_addr().unwrap()
     ));
-    // Get names of files with tcp (his shared - your available)
+
     let mut buf = create_buffer(CHUNK_SIZE);
     for stream in listener.incoming() {
         match stream {
@@ -153,12 +156,13 @@ pub fn multicast_receiver(data: Arc<Mutex<FileState>>) -> io::Result<()> {
                 match stream.read(&mut buf) {
                     Ok(size) => {
                         LOGGER.debug(format!("receiver: read {} bytes", size));
-                        // Get List of names
+
+                        // Parse list of file names advertised by the peer.
                         let names: Vec<String> = serde_json::from_slice(&buf[..size])?;
                         LOGGER.debug(format!("receiver: parsed {} names", names.len()));
                         for name in names.into_iter() {
+                            // If the file already exist just update Vec of IPs
                             if data.lock().unwrap().available.contains_key(&name) {
-                                // If file already exist just update Vec of IP
                                 data.lock()
                                     .unwrap()
                                     .available
@@ -166,7 +170,7 @@ pub fn multicast_receiver(data: Arc<Mutex<FileState>>) -> io::Result<()> {
                                     .unwrap()
                                     .push(stream.peer_addr().unwrap());
                             } else {
-                                // In another case - adding file with first IP that share it
+                                // In another case - add file with the first IP that share it
                                 let mut v: Vec<SocketAddr> = Vec::new();
                                 v.push(stream.peer_addr().unwrap());
                                 data.lock().unwrap().available.insert(name, v);

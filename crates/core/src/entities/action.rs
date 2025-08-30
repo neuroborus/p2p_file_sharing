@@ -3,21 +3,23 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
-/// An action that is serialized in the client and sent to the daemon
+/// Client-to-daemon actions.
 pub enum Action {
-    // Client -> Daemon
-    /// Share a file with a network
+    /// Announce a local file for sharing.
     Share { file_path: PathBuf },
-    /// Scans the network for files that can be downloaded
+    /// Discover peers and their shared files on the local network.
     Scan,
-    /// Show files that can be downloaded
+    /// List files currently known as downloadable (from the last scan).
     Ls,
-    /// Download a downloadable file (path is optional)
+    /// Request to download a file.
     Download {
+        /// File name (as advertised by peers).
         file_name: String,
+        /// Destination path for the downloaded file.
         save_path: PathBuf,
-        wait: bool, // Block input until file is downloaded
+        /// If `true`, block until the download completes.
+        wait: bool,
     },
-    /// Show distributed files
+    /// Show share/download status (shared, downloading, transferring).
     Status,
 }

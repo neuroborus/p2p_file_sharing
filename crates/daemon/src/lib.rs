@@ -26,19 +26,22 @@ pub use utils::{LOGGER, blocks_count};
 mod multicast;
 pub use multicast::*;
 
-/// Processing an action from client
+/// Handle a client action on the daemon side.
 pub fn action_processor(
-    action: &Action, // Command itself
+    action: &Action,
     mut stream: TcpStream,
-    mut data: MutexGuard<FileState>, // Contain shared & available files
-    transferring: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>>, /* HashMap for refreshing status
-                                      * about transferring files */
-    downloading: Arc<Mutex<Vec<String>>>, // Vector for refreshing status about downloading files
+    // Shared state: local `shared` and remote `available` files.
+    mut data: MutexGuard<FileState>,
+    // Tracks peers currently receiving each file.
+    transferring: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>>,
+    // Tracks files this daemon is downloading.
+    downloading: Arc<Mutex<Vec<String>>>,
 ) -> io::Result<()> {
     match action {
         Action::Share { file_path: f_path } => {
+            // Register the file under its basename.
             let name: String = String::from(f_path.file_name().unwrap().to_string_lossy());
-            data.shared.insert(name, f_path.clone()); // Name - path
+            data.shared.insert(name, f_path.clone());
 
             let answ = Response::Ok;
             let serialized = to_string(&answ)?;
@@ -51,56 +54,42 @@ pub fn action_processor(
             save_path: s_path,
             wait: wat,
         } => {
-            let answ: Response;
-
-            if data.available.contains_key(f_name) == false {
-                // If no one share this file
-                answ = Response::Err(String::from("File is not available to download!"));
-            } else if data.shared.contains_key(f_name) == true {
-                // If we already share this file
-                answ = Response::Err(String::from("You are already sharing this file!"));
+            // Validate that the file is available and not already shared by us.
+            let answ = if !data.available.contains_key(f_name) {
+                Response::Err(String::from("File is not available to download!"))
+            } else if data.shared.contains_key(f_name) {
+                Response::Err(String::from("You are already sharing this file!"))
             } else {
-                answ = Response::Ok;
+                Response::Ok
+            };
+
+            if let Response::Ok = answ {
+                // Launch a background download; optionally wait for completion.
+                let available_list = data.available.get(f_name).unwrap().clone();
+                let filename = f_name.clone();
+                let savepath = s_path.clone();
+                let t_handle = thread::spawn(move || {
+                    if let Err(e) =
+                        download_request(filename.clone(), savepath, available_list, downloading)
+                    {
+                        LOGGER.error(&format!("Failed to download {filename}: {e}"));
+                    }
+                });
+                if *wat {
+                    t_handle.join().unwrap();
+                }
             }
 
-            match answ {
-                Response::Ok => {
-                    // If everything is ok we starting a thread with download request to other
-                    // daemons
-                    let available_list = data.available.get(f_name).unwrap().clone();
-                    let filename = f_name.clone();
-                    let savepath = s_path.clone();
-                    let file_thread = thread::spawn(move || {
-                        match download_request(
-                            filename.clone(),
-                            savepath,
-                            available_list,
-                            downloading,
-                        ) {
-                            Ok(_) => (),
-                            Err(e) => {
-                                LOGGER.error(&format!(
-                                    "Failed to download a {filename}, an error occured {e}"
-                                ));
-                            }
-                        }
-                        ()
-                    });
-                    if *wat == true {
-                        // Waiting for ending of file downloading
-                        file_thread.join().unwrap();
-                    }
-                }
-                _ => {}
-            }
+            // Reply to client.
             let serialized = to_string(&answ)?;
             stream.write_all(serialized.as_bytes()).unwrap(); // Answer to client
         }
         Action::Scan => {
+            // Clear local cache; multicast_receiver will repopulate it.
             let socket = UdpSocket::bind((LOCAL_NETWORK, 0))?;
-            data.available.clear(); // Clear list of available files to download
-            // the list will be refreshed in multicast_receiver
+            data.available.clear();
             socket.send_to(SCAN_REQUEST, (DAEMON_MULTICAST_ADDR, PORT_MULTICAST))?;
+
             let answ = Response::Ok;
             let serialized = to_string(&answ)?;
             stream.write_all(serialized.as_bytes()).unwrap();
@@ -113,7 +102,6 @@ pub fn action_processor(
             stream.write_all(serialized.as_bytes()).unwrap();
         }
         Action::Status => {
-            // Transferring & shared
             let answ: Response = Response::Status {
                 transferring_map: transferring.lock().unwrap().clone(),
                 shared_map: data.shared.clone(),
@@ -127,7 +115,7 @@ pub fn action_processor(
     Ok(())
 }
 
-// Function to process the other daemon "download file" requests
+/// Accept and serve incoming file-transfer requests.
 pub fn share_responder(
     transferring: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>>,
     data: Arc<Mutex<FileState>>,
@@ -161,7 +149,7 @@ pub fn share_responder(
     Ok(())
 }
 
-/// Start sharing the file to other daemon
+/// Stream requested file blocks to a peer.
 pub fn transfer_to_peer(
     mut stream: TcpStream,
     transferring: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>>,
@@ -170,6 +158,7 @@ pub fn transfer_to_peer(
     LOGGER.debug("transfer: waiting first request...");
     let mut buf = vec![0; CHUNK_SIZE];
 
+    // I/O timeouts for the transfer session.
     stream.set_read_timeout(Some(Duration::new(45, 0)))?;
     stream.set_write_timeout(Some(Duration::new(45, 0)))?; // setting the timeouts
 
@@ -177,6 +166,7 @@ pub fn transfer_to_peer(
     let file_name: String;
     let file_size: FileSize;
 
+    // First message is a handshake: either size query or download request.
     match stream.read(&mut buf) {
         Ok(size) => {
             LOGGER.debug(format!(
@@ -194,7 +184,8 @@ pub fn transfer_to_peer(
                     stream = s;
                 }
                 None => {
-                    return Ok(()); // if other daemon wanted a file size we ended here
+                    // Size-only request answered; nothing more to do.
+                    return Ok(());
                 }
             }
             LOGGER.debug(format!(
@@ -213,7 +204,7 @@ pub fn transfer_to_peer(
     }
 
     let blocks: u32;
-    // that thing is interesting one
+    // !: Register this transfer; the guard removes the peer on drop.
     // While TransferGuard is creating he's adding a peer to the vector,
     // that stores a daemons, which download a file from us
     let _transfer_guard = TransferGuard::new(
@@ -233,14 +224,14 @@ pub fn transfer_to_peer(
         blocks, last_block_size
     ));
 
+    // Send the requested block range.
     let mut file = fs::File::open(&file_name)?;
     file.seek(SeekFrom::Start(
         CHUNK_SIZE as u64 * file_info.from_block as u64,
     ))?;
     for i in file_info.from_block..file_info.to_block {
         if i == blocks - 1 {
-            //  last block is not always 4096 so we resizing the vector and reading exactly
-            // as much as left
+            // The last block may be shorter than CHUNK_SIZE; read only the remainder.
             if last_block_size == 0 {
                 break;
             }
@@ -253,7 +244,7 @@ pub fn transfer_to_peer(
     Ok(())
 }
 
-/// Process first query which is get file size or start download a file
+/// Handle the first request: file-size query or a download start.
 pub fn handle_handshake(
     shared: HashMap<String, PathBuf>,
     request: HandshakeRequest,
@@ -261,36 +252,32 @@ pub fn handle_handshake(
 ) -> Option<(BlockInfo, String, u64, TcpStream)> {
     let asked_filename: String = request.filename;
     match request.action {
-        // Process the request
         FileSizeOrInfo::Size => {
-            // The other guy wants file size
-            let answ: HandshakeResponse;
-            if shared.contains_key(&asked_filename) == false {
-                //  If we do not sharing this file right now
-                answ = HandshakeResponse {
-                    filename: asked_filename.clone(),
-                    answer: FileInfo::NotExist,
-                }; // We are setting the answer -- file does not exist
-
+            // Return file size (or NotExist).
+            let answ = if !shared.contains_key(&asked_filename) {
                 LOGGER.info(&format!(
-                    "{} asked for not existing file",
+                    "{} asked for non-existing file",
                     stream.peer_addr().unwrap().ip()
                 ));
+                HandshakeResponse {
+                    filename: asked_filename.clone(),
+                    answer: FileInfo::NotExist,
+                }
             } else {
-                let size_of_file: u64 = std::fs::metadata(shared.get(&asked_filename).unwrap())
+                let size_of_file = std::fs::metadata(shared.get(&asked_filename).unwrap())
                     .unwrap()
                     .len();
-                answ = HandshakeResponse {
-                    filename: asked_filename.clone(),
-                    answer: FileInfo::Size(size_of_file),
-                }; //  In the other case, we set the answer to file size
-
                 LOGGER.info(&format!(
                     "{} asked size of {}",
                     stream.peer_addr().unwrap().ip(),
                     &asked_filename
                 ));
-            }
+                HandshakeResponse {
+                    filename: asked_filename.clone(),
+                    answer: FileInfo::Size(size_of_file),
+                }
+            };
+
             let serialized = to_string(&answ).unwrap();
             stream.write_all(serialized.as_bytes()).unwrap(); //  Sending the answer
             return None;
@@ -315,7 +302,7 @@ pub fn handle_handshake(
     }
 }
 
-/// Fill a HashMap of peer and his file size
+/// Query peers for the file size and return those reporting a size.
 pub fn get_fsizes(
     peer_list: Vec<SocketAddr>,
     file_name: String,
@@ -330,7 +317,7 @@ pub fn get_fsizes(
     let request_to_get_size = to_string(&HandshakeRequest {
         filename: file_name.clone(),
         action: FileSizeOrInfo::Size,
-    })?; // Request a file size
+    })?;
     let mut refresh = true;
 
     for peer in peer_list.iter() {
@@ -375,9 +362,11 @@ pub fn get_fsizes(
                         peers.push((stream.peer_addr()?, file_size));
                     }
                     FileInfo::NotExist => {
-                        // In other case our daemon says to scan the network again
+                        // The peer does not share the file; advise to rescan once.
                         if refresh {
-                            LOGGER.info("That peer doesn't share a file! Please refresh list of files with scan!");
+                            LOGGER.info(
+                                "That peer doesn't share the file. Please rescan the network.",
+                            );
                             LOGGER.debug(format!("fsizes: {} -> NotExist", stream.peer_addr()?));
 
                             refresh = false;
@@ -395,36 +384,36 @@ pub fn get_fsizes(
         }
     }
     LOGGER.debug(format!("fsizes: valid_peers={}", peers.len()));
-    Ok(peers) // Returning vector with daemons addresses and file sizes
+    // Return (peer address, file size) pairs.
+    Ok(peers)
 }
 
-/// Leave the most used file size and peer
+/// Keep only peers reporting the most common file size.
 pub fn clear_fsizes(mut peers: Vec<(SocketAddr, u64)>) -> io::Result<Vec<(SocketAddr, u64)>> {
     let mut _max_peers: u16 = 1;
-    // Create a vector with (FILE_SIZE, HOW_MANY_PEERS_SHARING_THIS_FILE_SIZE)
     let mut fsize_count: Vec<(u64, u16)> = Vec::new();
     peers.iter().for_each(|(_, fsize)| {
-        // counting them all
-        let buffer_var = fsize_count.iter_mut().find(|(size, _)| *size == *fsize);
-        if buffer_var == Option::None {
-            fsize_count.push((*fsize, 1));
+        if let Some((_, cnt)) = fsize_count.iter_mut().find(|(size, _)| *size == *fsize) {
+            *cnt += 1
         } else {
-            buffer_var.unwrap().1 += 1;
+            fsize_count.push((*fsize, 1));
         }
     });
-    // Choosing the most used. And if they equal taking the last one
+
+    // Choosing the most used. And if they are equal taking the last one
     let file_size = fsize_count
         .iter()
         .max_by(|(_, fcount), (_, scount)| fcount.cmp(scount))
         .unwrap()
         .0;
 
-    peers.retain(|(_, size)| *size == file_size); // Remove peers with other file sizes
+    // Remove peers with the other file sizes
+    peers.retain(|(_, size)| *size == file_size);
 
     Ok(peers)
 }
 
-// Split up the file in blocks and peers
+/// Split the file into [start, end) block ranges and assign them across peers.
 pub fn fill_block_watcher(
     blocks: u32,
     peers_count: u32,
@@ -446,7 +435,7 @@ pub fn fill_block_watcher(
             let fblock = i * blocks_per_peer;
             let mut lblock = (i + 1) * blocks_per_peer;
             if i == peers_count - 1 {
-                lblock = blocks; // removed blocks + 1
+                lblock = blocks; // end-exclusive
             }
             b_watch.insert((fblock, lblock), false);
         }
@@ -454,16 +443,15 @@ pub fn fill_block_watcher(
     Ok(blocks_watcher)
 }
 
-// Sending download file request to other daemons
+/// Schedule and perform a download, tracking progress in `blocks_watcher`.
 pub fn download_request(
     file_name: String,
     file_path: PathBuf,
     available: Vec<SocketAddr>,
     downloading: Arc<Mutex<Vec<String>>>,
 ) -> io::Result<()> {
-    // Getting the available peer which share file
+    // Query peers and keep those with the majority file size.
     let peers = get_fsizes(available, file_name.clone()).unwrap();
-    // Leaving peers which sharing the most popular file
     let mut clean_peers = clear_fsizes(peers).unwrap();
 
     LOGGER.debug(format!("download: peers_after_clear={}", clean_peers.len()));
@@ -476,10 +464,11 @@ pub fn download_request(
         "download: blocks={} peers_count={}",
         blocks, peers_count
     ));
-    // DownloadGuard would be useful here
+
+    // Track the file as "downloading".
     downloading.lock().unwrap().push(file_name.clone());
 
-    // We are tracking a downloading file status into the watcher
+    // Track completion of each [start, end) segment.
     let blocks_watcher: Arc<Mutex<HashMap<(u32, u32), bool>>> =
         fill_block_watcher(blocks, peers_count).unwrap();
     LOGGER.debug(format!(
@@ -501,7 +490,7 @@ pub fn download_request(
     {
         let block_lines = blocks_watcher.lock().unwrap().clone();
         let mut i = 0;
-        let mut del_i: usize = 0; //For deleting failed peers
+        let mut del_i: usize = 0; // index of a failed peer to remove
         for ((fblock, lblock), done) in block_lines {
             if done == false {
                 if interrupted {
@@ -522,6 +511,7 @@ pub fn download_request(
                 let _fsize = file_size;
                 let peer = clean_peers[i].0.clone();
                 let peers_left = clean_peers.len();
+
                 // Starting download a certain block from peer
                 LOGGER.debug(format!(
                     "download: schedule peer={} range=[{}, {})",
@@ -564,10 +554,14 @@ pub fn download_request(
             interrupted = true;
         }
     }
+
+    // Remove from the "downloading" list.
     downloading
         .lock()
         .unwrap()
         .retain(|line| *line != file_name); // Delete from the "downloading" downloaded file
+
+    // If some segments are unfinished, remove the partial file.
     if blocks_watcher
         .lock()
         .unwrap()
@@ -586,7 +580,7 @@ pub fn download_request(
     Ok(())
 }
 
-/// Download a specific file blocks from peer
+/// Download a specific [start, end) block range from a peer.
 pub fn download_from_peer(
     peer: SocketAddr,
     file_info: HandshakeRequest,
@@ -640,9 +634,9 @@ pub fn download_from_peer(
     Ok(())
 }
 
-//////////////////
-/// TESTS
-/////////////////
+/////////////
+/// TESTS ///
+/////////////
 
 #[cfg(test)] //Unit-tests
 mod unit_tests {

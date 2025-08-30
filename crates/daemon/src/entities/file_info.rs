@@ -1,9 +1,10 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
-/// If downloadable peer asked file size we answering with size or file not
-/// exist
+/// Response to a peer's file-size request.
 pub enum FileInfo {
+    /// File exists — return its size in bytes.
     Size(u64),
+    /// File does not exist.
     NotExist,
 }

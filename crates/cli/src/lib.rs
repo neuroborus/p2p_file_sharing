@@ -8,7 +8,7 @@ use p2p_config::{CHUNK_SIZE, LOCALHOST, PORT_CLIENT_DAEMON};
 use p2p_core::entities::{Action, Response};
 use p2p_core::utils::{Logger, create_buffer};
 use serde_json::{from_slice, to_string};
-//
+
 pub static LOGGER: Logger = Logger::compact("cli");
 
 pub fn connect() -> TcpStream {
@@ -147,7 +147,7 @@ pub fn process_actions(stream: &mut TcpStream, matches: &ArgMatches) -> io::Resu
 
         Some(("ls", _)) => {
             let ls: Action = Action::Ls;
-            //
+
             LOGGER.debug("send Action::Ls");
             let serialized = to_string(&ls)?;
             stream.write_all(serialized.as_bytes()).unwrap();
@@ -161,21 +161,21 @@ pub fn process_actions(stream: &mut TcpStream, matches: &ArgMatches) -> io::Resu
                     "No file name to download!",
                 ));
             }
-            //
+
             let s_path: PathBuf = sub
                 .get_one::<String>("FILE_PATH")
                 .map(|s| PathBuf::from(s))
                 .unwrap_or_default();
-            //
+
             let f_name: String = String::from(sub.get_one::<String>("FILE_NAME").unwrap());
-            //
+
             let wait = sub.get_flag("WAIT");
             let download: Action = Action::Download {
                 file_name: f_name,
                 save_path: s_path,
                 wait,
             };
-            //
+
             LOGGER.debug("send Action::Download");
             let serialized = to_string(&download)?;
             stream.write_all(serialized.as_bytes()).unwrap();
@@ -184,7 +184,7 @@ pub fn process_actions(stream: &mut TcpStream, matches: &ArgMatches) -> io::Resu
 
         Some(("status", _)) => {
             let status: Action = Action::Status;
-            //
+
             LOGGER.debug("send Action::Status");
             let serialized = to_string(&status)?;
             stream.write_all(serialized.as_bytes()).unwrap();
@@ -242,7 +242,6 @@ pub fn process_daemon_response(stream: &mut TcpStream) -> io::Result<()> {
                         }
                     }
 
-                    // ?:
                     LOGGER.info("Downloading:");
 
                     for file in d_map {
