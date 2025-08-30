@@ -93,7 +93,7 @@ pub fn create_command() -> Command {
                 )
                 .arg(
                     Arg::new("FILE_PATH")
-                        .help("Optional save directory")
+                        .help("Output path: file or directory")
                         .value_name("OUT_DIR")
                         .short('o')
                         .long("out"),

@@ -47,7 +47,7 @@ pub fn get_this_daemon_ip() -> io::Result<IpAddr> {
             ));
             socket
                 .send_to(
-                    unique_number.to_string().as_bytes(),
+                    unique_number.to_string().as_bytes(), // TODO: use uuid
                     (DAEMON_MULTICAST_ADDR, PORT_SELF_IP),
                 )
                 .unwrap();

@@ -614,7 +614,29 @@ pub fn download_from_peer(
     }
 
     let last_block_size = file_size as usize % CHUNK_SIZE;
-    let mut file = fs::File::create(&file_info.filename)?;
+
+
+    // Decide destination path:
+    // - empty -> "./<filename>"
+    // - existing dir -> "<dir>/<filename>"
+    // - otherwise -> treat as full file path (allow renaming)
+    let dest_path = if _file_path.as_os_str().is_empty() {
+        PathBuf::from(&file_info.filename)
+    } else if _file_path.is_dir() {
+        let mut p = _file_path.clone();
+        p.push(&file_info.filename);
+        p
+    } else {
+        _file_path.clone()
+    };
+    if let Some(parent) = dest_path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent)?;
+        }
+    }
+
+    let mut file = fs::File::create(&dest_path)?;
+
     file.seek(SeekFrom::Start(CHUNK_SIZE as u64 * fblock as u64))?;
     for i in fblock..lblock {
         if i == file_blocks {
