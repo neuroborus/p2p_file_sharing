@@ -1,9 +1,13 @@
-use std::{io, io::prelude::*, net::TcpStream, path::PathBuf};
-use serde_json::{to_string, from_slice};
+use std::io;
+use std::io::prelude::*;
+use std::net::TcpStream;
+use std::path::PathBuf;
+
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use p2p_config::{CHUNK_SIZE, LOCALHOST, PORT_CLIENT_DAEMON};
 use p2p_core::entities::{Action, Response};
-use p2p_core::utils::{create_buffer, Logger};
+use p2p_core::utils::{Logger, create_buffer};
+use serde_json::{from_slice, to_string};
 //
 pub static LOGGER: Logger = Logger::compact("cli");
 

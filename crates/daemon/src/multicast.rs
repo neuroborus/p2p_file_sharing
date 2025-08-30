@@ -3,15 +3,15 @@ use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::str::FromStr; // because we need to be able to do u128::from_str
 use std::sync::{Arc, Mutex};
-use rand::{random};
 
 use p2p_config::{
     CHUNK_SIZE, DAEMON_MULTICAST_ADDR, LOCAL_NETWORK, PORT_MULTICAST, PORT_SCAN_TCP, PORT_SELF_IP,
     SCAN_REQUEST,
 };
-use crate::entities::FileState;
 use p2p_core::utils::create_buffer;
+use rand::random;
 
+use crate::entities::FileState;
 use crate::utils::*;
 
 #[cfg(windows)]

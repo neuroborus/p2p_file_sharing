@@ -6,20 +6,18 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 use std::{fs, io, thread};
-use serde_json::{from_slice, to_string};
 
 use p2p_config::{
     CHUNK_SIZE, DAEMON_MULTICAST_ADDR, LOCAL_NETWORK, PORT_FILE_SHARE, PORT_MULTICAST, SCAN_REQUEST,
 };
-use p2p_core::entities::{
-    Action, Response,
-};
+use p2p_core::entities::{Action, Response};
+use serde_json::{from_slice, to_string};
 use threadpool::ThreadPool;
 
 mod entities;
 pub use entities::{
-    BlockInfo, FileInfo, FileSize, FileSizeOrInfo, FileState, HandshakeRequest,
-    HandshakeResponse, TransferGuard,
+    BlockInfo, FileInfo, FileSize, FileSizeOrInfo, FileState, HandshakeRequest, HandshakeResponse,
+    TransferGuard,
 };
 
 mod utils;
@@ -755,7 +753,7 @@ mod unit_tests {
         let blocks: u32 = 50;
         let peers: u32 = 1;
         let mut res: HashMap<(u32, u32), bool> = HashMap::new();
-        res.insert((0, 51), false);
+        res.insert((0, 50), false);
         assert_eq!(
             res,
             fill_block_watcher(blocks, peers)
@@ -772,7 +770,7 @@ mod unit_tests {
         let peers: u32 = 2;
         let mut res: HashMap<(u32, u32), bool> = HashMap::new();
         res.insert((0, 50), false);
-        res.insert((50, 101), false);
+        res.insert((50, 100), false);
         assert_eq!(
             res,
             fill_block_watcher(blocks, peers)
@@ -806,7 +804,7 @@ mod unit_tests {
         let blocks: u32 = 1;
         let peers: u32 = 1;
         let mut res: HashMap<(u32, u32), bool> = HashMap::new();
-        res.insert((0, 2), false);
+        res.insert((0, 1), false);
         assert_eq!(
             res,
             fill_block_watcher(blocks, peers)
@@ -822,7 +820,7 @@ mod unit_tests {
         let blocks: u32 = 2;
         let peers: u32 = 1;
         let mut res: HashMap<(u32, u32), bool> = HashMap::new();
-        res.insert((0, 3), false);
+        res.insert((0, 2), false);
         assert_eq!(
             res,
             fill_block_watcher(blocks, peers)
@@ -839,7 +837,7 @@ mod unit_tests {
         let peers: u32 = 2;
         let mut res: HashMap<(u32, u32), bool> = HashMap::new();
         res.insert((0, 1), false);
-        res.insert((1, 3), false);
+        res.insert((1, 2), false);
         assert_eq!(
             res,
             fill_block_watcher(blocks, peers)
@@ -851,7 +849,8 @@ mod unit_tests {
     }
 }
 
-#[cfg(test)] //Functional tests
+// Functional tests
+#[cfg(test)]
 mod func_tests {
     use p2p_config::{LOCALHOST, PORT_CLIENT_DAEMON};
     use p2p_core::utils::create_buffer;
@@ -864,7 +863,7 @@ mod func_tests {
         //
         let mut stream = TcpStream::connect((LOCALHOST, PORT_CLIENT_DAEMON + 1)).unwrap();
         let share = Action::Share {
-            file_path: PathBuf::from("fake\\path\\FILE.dat"),
+            file_path: PathBuf::from("crates/daemon/src/lib.rs"),
         };
         let stream_tmp = _listener.accept().unwrap().0;
         let dat: Arc<Mutex<FileState>> = Arc::new(Mutex::new(FileState::new()));
@@ -883,9 +882,9 @@ mod func_tests {
                 assert_eq!(
                     (dat.lock().unwrap())
                         .shared
-                        .get(&String::from("FILE.dat"))
+                        .get(&String::from("lib.rs"))
                         .unwrap(),
-                    &PathBuf::from("fake\\path\\FILE.dat")
+                    &PathBuf::from("crates/daemon/src/lib.rs")
                 );
             }
             Err(_) => {
