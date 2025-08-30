@@ -1,16 +1,15 @@
 [workspace]
 members = ["crates/core", "crates/daemon", "crates/cli", "crates/config"]
+resolver = "3"   # use the 2024 resolver
 
 [profile.release]
 lto = "thin"
 codegen-units = 1
-resolver = "3"   # use the 2024 resolver
 
 [workspace.dependencies]
-chrono = "0.4" # using in logger
+chrono = "0.4" # used in the logger
 clap = "4.5.46"
-serde = "1.0.101"
-serde_json = "1.0.41"
-serde_derive = "1.0.101"
-rand = "0.7.2"
-threadpool = "1.7.1"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.143"
+rand = "0.9.2"
+threadpool = "1.8.1"

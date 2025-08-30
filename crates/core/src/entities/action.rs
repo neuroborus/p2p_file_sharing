@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
 /// An action that is serialized in the client and sent to the daemon

@@ -1,4 +1,4 @@
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 use crate::entities::file_info::FileInfo;
 use crate::entities::file_size_or_info::FileSizeOrInfo;

@@ -9,5 +9,4 @@ name = "p2p_core"
 
 [dependencies]
 serde = { workspace = true }
-serde_derive = { workspace = true }
 chrono = { workspace = true }
