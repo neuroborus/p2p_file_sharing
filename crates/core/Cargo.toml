@@ -1,0 +1,12 @@
+[package]
+name = "p2p-core"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+
+[lib]
+name = "p2p_core"
+
+[dependencies]
+serde = { workspace = true }
+chrono = { workspace = true }

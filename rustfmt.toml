@@ -1,0 +1,13 @@
+edition = "2024"
+max_width = 100
+hard_tabs = false
+tab_spaces = 4
+
+# Requires nightly + rustfmt --unstable-features
+wrap_comments = true
+normalize_comments = true
+format_code_in_doc_comments = true
+imports_granularity = "Module"
+group_imports = "StdExternalCrate"
+
+# cargo +nightly fmt --all -- --unstable-features
