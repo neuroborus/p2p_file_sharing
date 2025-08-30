@@ -50,7 +50,7 @@ impl Logger {
             let prefix = match level {
                 // We need to match as templates because of the value inside
                 Level::Debug(_) => "d",
-                Level::Error(_) => "!",
+                Level::Error(_) => "e",
                 _ => "",
             };
 

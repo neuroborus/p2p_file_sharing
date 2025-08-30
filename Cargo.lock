@@ -266,9 +266,7 @@ dependencies = [
  "clap",
  "p2p-config",
  "p2p-core",
- "p2p-utils",
  "serde",
- "serde_derive",
  "serde_json",
 ]
 
@@ -280,11 +278,9 @@ version = "0.1.0"
 name = "p2p-core"
 version = "0.1.0"
 dependencies = [
- "rand",
+ "chrono",
  "serde",
  "serde_derive",
- "serde_json",
- "threadpool",
 ]
 
 [[package]]
@@ -293,19 +289,11 @@ version = "0.1.0"
 dependencies = [
  "p2p-config",
  "p2p-core",
- "p2p-utils",
  "rand",
  "serde",
  "serde_derive",
  "serde_json",
  "threadpool",
-]
-
-[[package]]
-name = "p2p-utils"
-version = "0.1.0"
-dependencies = [
- "chrono",
 ]
 
 [[package]]

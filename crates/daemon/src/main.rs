@@ -5,12 +5,10 @@ use std::sync::{Arc, Mutex};
 use std::{io, thread};
 
 use p2p_config::{CHUNK_SIZE, LOCALHOST, PORT_CLIENT_DAEMON};
-use p2p_core::entities::{Action, FileState};
-use p2p_core::helpers::create_buffer;
+use p2p_core::entities::Action;
+use p2p_core::utils::create_buffer;
 
-mod utils;
 use p2p_daemon::*;
-use utils::LOGGER;
 
 fn main() -> io::Result<()> {
     LOGGER.info("Running...");

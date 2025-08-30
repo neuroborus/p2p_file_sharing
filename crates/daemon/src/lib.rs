@@ -6,19 +6,24 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 use std::{fs, io, thread};
+use serde_json::{from_slice, to_string};
 
 use p2p_config::{
     CHUNK_SIZE, DAEMON_MULTICAST_ADDR, LOCAL_NETWORK, PORT_FILE_SHARE, PORT_MULTICAST, SCAN_REQUEST,
 };
 use p2p_core::entities::{
-    Action, BlockInfo, FileInfo, FileSize, FileSizeOrInfo, FileState, HandshakeRequest,
-    HandshakeResponse, Response, TransferGuard,
+    Action, Response,
 };
-use p2p_core::helpers::blocks_count;
 use threadpool::ThreadPool;
 
+mod entities;
+pub use entities::{
+    BlockInfo, FileInfo, FileSize, FileSizeOrInfo, FileState, HandshakeRequest,
+    HandshakeResponse, TransferGuard,
+};
+
 mod utils;
-use utils::LOGGER;
+pub use utils::{LOGGER, blocks_count};
 
 mod multicast;
 pub use multicast::*;
@@ -38,7 +43,7 @@ pub fn action_processor(
             data.shared.insert(name, f_path.clone()); // Name - path
 
             let answ = Response::Ok;
-            let serialized = serde_json::to_string(&answ)?;
+            let serialized = to_string(&answ)?;
             stream.write_all(serialized.as_bytes()).unwrap();
 
             LOGGER.debug(format!("responder: sent {} names", data.shared.len()));
@@ -90,7 +95,7 @@ pub fn action_processor(
                 }
                 _ => {}
             }
-            let serialized = serde_json::to_string(&answ)?;
+            let serialized = to_string(&answ)?;
             stream.write_all(serialized.as_bytes()).unwrap(); // Answer to client
         }
         Action::Scan => {
@@ -99,14 +104,14 @@ pub fn action_processor(
             // the list will be refreshed in multicast_receiver
             socket.send_to(SCAN_REQUEST, (DAEMON_MULTICAST_ADDR, PORT_MULTICAST))?;
             let answ = Response::Ok;
-            let serialized = serde_json::to_string(&answ)?;
+            let serialized = to_string(&answ)?;
             stream.write_all(serialized.as_bytes()).unwrap();
         }
         Action::Ls => {
             let answ: Response = Response::Ls {
                 available_map: data.available.clone(),
             };
-            let serialized = serde_json::to_string(&answ)?;
+            let serialized = to_string(&answ)?;
             stream.write_all(serialized.as_bytes()).unwrap();
         }
         Action::Status => {
@@ -116,7 +121,7 @@ pub fn action_processor(
                 shared_map: data.shared.clone(),
                 downloading_map: downloading.lock().unwrap().clone(),
             };
-            let serialized = serde_json::to_string(&answ)?;
+            let serialized = to_string(&answ)?;
             stream.write_all(serialized.as_bytes()).unwrap();
         }
     }
@@ -181,7 +186,7 @@ pub fn transfer_to_peer(
                 size,
                 stream.peer_addr().unwrap()
             ));
-            let request: HandshakeRequest = serde_json::from_slice(&buf[..size])?;
+            let request: HandshakeRequest = from_slice(&buf[..size])?;
             match handle_handshake(shared, request, stream) {
                 // processing the first request
                 Some((info, name, size, s)) => {
@@ -288,7 +293,7 @@ pub fn handle_handshake(
                     &asked_filename
                 ));
             }
-            let serialized = serde_json::to_string(&answ).unwrap();
+            let serialized = to_string(&answ).unwrap();
             stream.write_all(serialized.as_bytes()).unwrap(); //  Sending the answer
             return None;
         }
@@ -324,7 +329,7 @@ pub fn get_fsizes(
     ));
     let mut buf = vec![0; CHUNK_SIZE];
     let mut peers: Vec<(SocketAddr, u64)> = Vec::new();
-    let request_to_get_size = serde_json::to_string(&HandshakeRequest {
+    let request_to_get_size = to_string(&HandshakeRequest {
         filename: file_name.clone(),
         action: FileSizeOrInfo::Size,
     })?; // Request a file size
@@ -360,7 +365,7 @@ pub fn get_fsizes(
                     size,
                     stream.peer_addr()?
                 ));
-                let answer: HandshakeResponse = serde_json::from_slice(&buf[..size])?;
+                let answer: HandshakeResponse = from_slice(&buf[..size])?;
                 match answer.answer {
                     FileInfo::Size(file_size) => {
                         // If daemon sharing a file, we pushing his ip and size to vec
@@ -599,7 +604,7 @@ pub fn download_from_peer(
     stream.set_read_timeout(Some(Duration::new(45, 0)))?;
     stream.set_write_timeout(Some(Duration::new(45, 0)))?;
 
-    let ser = serde_json::to_string(&file_info)?;
+    let ser = to_string(&file_info)?;
     stream.write_all(ser.as_bytes())?;
 
     let fblock: u32;
@@ -849,7 +854,7 @@ mod unit_tests {
 #[cfg(test)] //Functional tests
 mod func_tests {
     use p2p_config::{LOCALHOST, PORT_CLIENT_DAEMON};
-    use p2p_core::helpers::create_buffer;
+    use p2p_core::utils::create_buffer;
 
     use super::*;
 
@@ -872,7 +877,7 @@ mod func_tests {
         let mut buf = create_buffer(CHUNK_SIZE);
         match stream.read(&mut buf) {
             Ok(size) => {
-                let answ: Response = serde_json::from_slice(&buf[..size]).unwrap();
+                let answ: Response = from_slice(&buf[..size]).unwrap();
                 assert_eq!(answ, Response::Ok);
                 // Checking dat after changes
                 assert_eq!(
@@ -910,7 +915,7 @@ mod func_tests {
         let mut buf = create_buffer(CHUNK_SIZE);
         match stream.read(&mut buf) {
             Ok(size) => {
-                let answ: Response = serde_json::from_slice(&buf[..size]).unwrap();
+                let answ: Response = from_slice(&buf[..size]).unwrap();
                 assert_eq!(
                     answ,
                     Response::Err(String::from("File is not available to download!"))
@@ -937,7 +942,7 @@ mod func_tests {
         let mut buf = create_buffer(CHUNK_SIZE);
         match stream.read(&mut buf) {
             Ok(size) => {
-                let answ: Response = serde_json::from_slice(&buf[..size]).unwrap();
+                let answ: Response = from_slice(&buf[..size]).unwrap();
                 assert_eq!(answ, Response::Ok);
             }
             Err(_) => {
@@ -968,7 +973,7 @@ mod func_tests {
         let mut buf = create_buffer(CHUNK_SIZE);
         match stream.read(&mut buf) {
             Ok(size) => {
-                let answ: Response = serde_json::from_slice(&buf[..size]).unwrap();
+                let answ: Response = from_slice(&buf[..size]).unwrap();
                 //
                 let mut t: HashMap<String, Vec<SocketAddr>> = HashMap::new();
                 t.insert(String::from("FILE.dat"), Vec::new());
@@ -1008,7 +1013,7 @@ mod func_tests {
         let mut buf = create_buffer(CHUNK_SIZE);
         match stream.read(&mut buf) {
             Ok(size) => {
-                let answ: Response = serde_json::from_slice(&buf[..size]).unwrap();
+                let answ: Response = from_slice(&buf[..size]).unwrap();
                 //
                 let mut tr: HashMap<String, Vec<SocketAddr>> = HashMap::new();
                 tr.insert(String::from("FILE.dat"), Vec::new());

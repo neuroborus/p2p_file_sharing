@@ -1,12 +1,10 @@
-use std::{io, io::prelude::*, net::TcpStream, path::PathBuf}; /* io::prelude::* requires for
-                                                               * work with stream */
-
+use std::{io, io::prelude::*, net::TcpStream, path::PathBuf};
+use serde_json::{to_string, from_slice};
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use p2p_config::{CHUNK_SIZE, LOCALHOST, PORT_CLIENT_DAEMON};
 use p2p_core::entities::{Action, Response};
-use p2p_core::helpers;
+use p2p_core::utils::{create_buffer, Logger};
 //
-use p2p_utils::logger::Logger;
 pub static LOGGER: Logger = Logger::compact("cli");
 
 pub fn connect() -> TcpStream {
@@ -123,7 +121,7 @@ pub fn process_actions(stream: &mut TcpStream, matches: &ArgMatches) -> io::Resu
                 let share = Action::Share { file_path: f_path };
                 //
                 LOGGER.debug("send Action::Share");
-                let serialized = serde_json::to_string(&share)?;
+                let serialized = to_string(&share)?;
                 stream.write_all(serialized.as_bytes()).unwrap();
                 LOGGER.debug("request written, waiting for reply...");
             } else {
@@ -138,7 +136,7 @@ pub fn process_actions(stream: &mut TcpStream, matches: &ArgMatches) -> io::Resu
             let scan: Action = Action::Scan;
             //
             LOGGER.debug("send Action::Scan");
-            let serialized = serde_json::to_string(&scan)?;
+            let serialized = to_string(&scan)?;
             stream.write_all(serialized.as_bytes()).unwrap();
             LOGGER.debug("request written, waiting for reply...");
         }
@@ -147,7 +145,7 @@ pub fn process_actions(stream: &mut TcpStream, matches: &ArgMatches) -> io::Resu
             let ls: Action = Action::Ls;
             //
             LOGGER.debug("send Action::Ls");
-            let serialized = serde_json::to_string(&ls)?;
+            let serialized = to_string(&ls)?;
             stream.write_all(serialized.as_bytes()).unwrap();
             LOGGER.debug("request written, waiting for reply...");
         }
@@ -175,7 +173,7 @@ pub fn process_actions(stream: &mut TcpStream, matches: &ArgMatches) -> io::Resu
             };
             //
             LOGGER.debug("send Action::Download");
-            let serialized = serde_json::to_string(&download)?;
+            let serialized = to_string(&download)?;
             stream.write_all(serialized.as_bytes()).unwrap();
             LOGGER.debug("request written, waiting for reply...");
         }
@@ -184,7 +182,7 @@ pub fn process_actions(stream: &mut TcpStream, matches: &ArgMatches) -> io::Resu
             let status: Action = Action::Status;
             //
             LOGGER.debug("send Action::Status");
-            let serialized = serde_json::to_string(&status)?;
+            let serialized = to_string(&status)?;
             stream.write_all(serialized.as_bytes()).unwrap();
             LOGGER.debug("request written, waiting for reply...");
         }
@@ -198,10 +196,10 @@ pub fn process_actions(stream: &mut TcpStream, matches: &ArgMatches) -> io::Resu
 }
 
 pub fn process_daemon_response(stream: &mut TcpStream) -> io::Result<()> {
-    let mut buf = helpers::create_buffer(CHUNK_SIZE);
+    let mut buf = create_buffer(CHUNK_SIZE);
     match stream.read(&mut buf) {
         Ok(size) => {
-            let answ: Response = serde_json::from_slice(&buf[..size])?;
+            let answ: Response = from_slice(&buf[..size])?;
             LOGGER.debug(format!("got reply {} bytes", size));
 
             match answ {

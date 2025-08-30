@@ -9,7 +9,5 @@ name = "p2p_core"
 
 [dependencies]
 serde = { workspace = true }
-serde_json = { workspace = true }
 serde_derive = { workspace = true }
-threadpool = { workspace = true }
-rand = { workspace = true }
+chrono = { workspace = true }

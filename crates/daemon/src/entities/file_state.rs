@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
-pub use std::path::PathBuf;
+use std::path::PathBuf;
 
 #[derive(Debug)]
 /// Contain HashMaps of available for transfer and download files

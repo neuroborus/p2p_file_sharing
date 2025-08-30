@@ -3,13 +3,14 @@ use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::str::FromStr; // because we need to be able to do u128::from_str
 use std::sync::{Arc, Mutex};
+use rand::{random};
 
 use p2p_config::{
     CHUNK_SIZE, DAEMON_MULTICAST_ADDR, LOCAL_NETWORK, PORT_MULTICAST, PORT_SCAN_TCP, PORT_SELF_IP,
     SCAN_REQUEST,
 };
-use p2p_core::entities::FileState;
-use p2p_core::helpers::create_buffer;
+use crate::entities::FileState;
+use p2p_core::utils::create_buffer;
 
 use crate::utils::*;
 
@@ -24,7 +25,7 @@ pub fn bind_multicast(addr: &Ipv4Addr, port: u16) -> io::Result<UdpSocket> {
 
 /// Getting an IP of the current daemon thread
 pub fn get_this_daemon_ip() -> io::Result<IpAddr> {
-    let unique_number: u128 = rand::random();
+    let unique_number: u128 = random();
     let self_ip: IpAddr;
     {
         LOGGER.debug(format!(
