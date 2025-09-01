@@ -126,7 +126,6 @@ cargo test
 
 ---
 
-
 ## Profiling
 
 ### 1. Generate constant client activity
