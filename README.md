@@ -126,6 +126,74 @@ cargo test
 
 ---
 
+
+## Profiling
+
+### 1. Generate constant client activity
+Run continuous client interactions in a separate terminal to keep the daemon busy during profiling:
+
+```bash
+while true; do
+    ./target/release/p2p-cli scan
+    ./target/release/p2p-cli download -f my-message.txt
+done
+```
+
+### 2. Profile the running daemon for 30 seconds
+First, get the daemon's PID:
+```bash
+pidof p2p-daemon
+# example output:
+21224
+```
+
+Then run `perf` against that PID:
+```bash
+sudo perf record -F 999 -p 21224 --call-graph dwarf -- sleep 30
+```
+
+You can abort the client activity loop after profiling completes.
+
+### 3. View the report
+```bash
+sudo perf report
+```
+
+---
+
+## Flamegraph
+
+![](./flamegraph.svg)
+
+### 1. Enable debug symbols for release builds
+In your `Cargo.toml`, add:
+```toml
+[profile.release]
+debug = true # for profiling
+```
+
+### 2. Allow `perf` without root (until next reboot)
+```bash
+echo -1 | sudo tee /proc/sys/kernel/perf_event_paranoid
+echo 0  | sudo tee /proc/sys/kernel/kptr_restrict
+```
+
+### 3. Run `cargo-flamegraph`
+```bash
+cargo flamegraph --release --bin p2p-daemon
+```
+
+### 4. Open the generated SVG
+After the process finishes (via `Ctrl+C` or normal exit):
+```bash
+xdg-open flamegraph.svg
+# or
+firefox flamegraph.svg
+```
+
+
+---
+
 ## Limitations / TODO
 
 - No persistent resume of partially downloaded files after daemon restart.
