@@ -190,6 +190,30 @@ xdg-open flamegraph.svg
 firefox flamegraph.svg
 ```
 
+### Notes on Sampling Frequency (`-F`)
+
+The `-F` option in `perf record` controls the sampling frequency (samples per second per thread).
+
+- **Higher frequency** (e.g., `-F 999`) gives more precise profiles, especially for short-lived or very fast functions, but:
+  - Increases overhead on the CPU.
+  - Produces larger `perf.data` files.
+  - Can distort timings if the target process is sensitive to profiling load.
+
+- **Lower frequency** (e.g., `-F 99` or `-F 199`) is usually sufficient for longer profiling sessions or when looking for major hotspots.
+
+**Guideline:**
+- Use `-F 99` for general, long-running profiling.
+- Use `-F 199` or `-F 499` for medium-length sessions when more detail is needed.
+- Reserve `-F 999` for short (10–30s) sessions focusing on high-precision, CPU-bound code.
+
+Example:
+```bash
+# Safe, general-purpose sampling
+sudo perf record -F 99 -p <PID> --call-graph dwarf -- sleep 30
+
+# High-precision sampling for a short period
+sudo perf record -F 999 -p <PID> --call-graph dwarf -- sleep 15
+```
 
 ---
 
