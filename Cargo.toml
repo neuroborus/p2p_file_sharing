@@ -5,6 +5,7 @@ resolver = "3"   # use the 2024 resolver
 [profile.release]
 lto = "thin"
 codegen-units = 1
+debug = true # for profiling
 
 [workspace.dependencies]
 chrono = "0.4" # used in the logger
